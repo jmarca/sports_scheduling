@@ -118,7 +118,7 @@ python_environment(){
 	   -e "DISPLAY=unix${DISPLAY}" \
            --network=routing_nw \
            --name ortools_python \
-           -v ${PWD}:/work \
+           -v ${PWD}:/home/user \
            jmarca/ortools_python bash
 }
 
