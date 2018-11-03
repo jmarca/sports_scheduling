@@ -2,3 +2,4 @@ __pycache__
 *~
 *.ass
 test.png
+.cache
