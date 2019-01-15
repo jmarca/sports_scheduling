@@ -109,7 +109,7 @@ osrm_frontend(){
 
 python_environment(){
     # relies_on osrm_routed osrm_frontend
-
+    relies_on_network routing_nw
     docker run -it \
            --rm \
            --user 1000 \
