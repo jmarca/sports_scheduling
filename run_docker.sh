@@ -121,6 +121,18 @@ python_environment(){
            -v ${PWD}:/home/user \
            jmarca/ortools_python bash
 }
+ortools_cpp(){
+    # relies_on osrm_routed osrm_frontend
+    docker run -it \
+           --rm \
+           --user 1000 \
+	   -v /etc/localtime:/etc/localtime:ro \
+	   -v /tmp/.X11-unix:/tmp/.X11-unix \
+	   -e "DISPLAY=unix${DISPLAY}" \
+           --name ortools_cpp \
+           -v ${PWD}:/work \
+           jmarca/ortools:cpp bash
+}
 
 # osrm_routed
 # route_optimization_service
