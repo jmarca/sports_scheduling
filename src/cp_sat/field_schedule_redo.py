@@ -49,14 +49,15 @@ def model(num_teams=32,
 
     fixtures = [] # all possible games
     at_home = []  # whether or not a team plays at home on matchday
+    pool_play = [] # play between pools, for team vs pool balancing
+    pool_balance = [] # also play between pools, for pool vs pool
 
-    # this bit makes no sense to me.  CPP version has num days set at 2*num_teams-2
-    #
     for d in matchdays:
         fixtures.append([])
         at_home.append([])
         for i in teams:
             fixtures[d].append([])
+            home_pool = num_groups
             for j in teams:
                 fixtures[d][i].append(model.NewBoolVar('fixture: home team %i, opponent %i, matchday %i' % (i,j,d)))
                 if i == j:
@@ -64,7 +65,30 @@ def model(num_teams=32,
             # is team i playing at home on day d?
             at_home[d].append(model.NewBoolVar('team %i is home on matchday %i' % (i,d)))
 
-    # second loop, list possible opponents
+    # pool play loop
+    # home team group is outer loop
+    for ppi in range(num_groups):
+        pool_balance.append([])
+        for t in groups[ppi]:
+            pool_play.append([])
+            # other team group is inner loop
+            for ppj in range(num_groups):
+                pool_balance[ppi].append([])
+                pool_play[t].append([])
+                # over all the days, have to play each pool at least once
+                for d in matchdays:
+                    for opponent in groups[ppj]:
+                        if t == opponent:
+                            # cannot play self
+                            continue
+                        pool_play[t][ppj].append(fixtures[d][t][opponent])
+                        pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
+                # over all the days, have to play each pool at least once
+                model.AddBoolOr(pool_play[t][ppj])
+                # model.Add(sum(pool_balance[ppi][ppj]) == 10)
+
+
+    # for this loop list possible opponents
     # each day, team t plays either home or away, but only once
     for d in matchdays:
         for t in teams:
@@ -122,6 +146,10 @@ def model(num_teams=32,
                              at_home[d+1][t].Not(),
                              at_home[d+2][t].Not()])
 
+    # spread play evenly between team groups
+
+
+
     # objective using breaks concept
     breaks = []
     for t in teams:
@@ -170,8 +198,8 @@ def model(num_teams=32,
         for j in range(num_groups):
             pools[i].append(0)
 
-
-
+    if status == cp_model.INFEASIBLE:
+        return status
 
     for d in matchdays:
         game = 0
