@@ -242,7 +242,7 @@ def model(num_teams=32,
     for i in range(num_groups):
         for t in groups[i]:
             for j in range(num_groups):
-                print('team %i versus pool %i = %i' % (t,j,team_pool_play[t][j]))
+                print('team %i versus pool %i = %i' % (t+1,j,team_pool_play[t][j]))
 
 if __name__ == '__main__':
     model()
