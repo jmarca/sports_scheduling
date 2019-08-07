@@ -196,10 +196,18 @@ def model(num_teams=32,
 
     # these should sum to 10 each
     pools = []
+    # these should be balanced
+    team_pool_play=[]
     for i in range(num_groups):
         pools.append([])
         for j in range(num_groups):
             pools[i].append(0)
+        for t in groups[i]:
+            team_pool_play.append([])
+            for j in range(num_groups):
+                for other in groups[j]:
+                    team_pool_play[t].append(0)
+
 
     if status == cp_model.INFEASIBLE:
         return status
@@ -213,14 +221,16 @@ def model(num_teams=32,
                     game += 1
                     print('day %i game %i home %i away %i' %(d+1,game,t+1,other+1))
 
-                    # check of home and away pot sums
-                    for i in range(num_groups):
-                        if t in groups[i]:
-                            for j in range(num_groups):
-                                if other in groups[j]:
-                                    pools[i][j] += 1
-                                    break
-                            break
+    for d in matchdays:
+        for i in range(num_groups):
+            for t in groups[i]:
+                for j in range(num_groups):
+                    for other in groups[j]:
+                        home = solver.Value(fixtures[d][t][other])
+                        if home:
+                            team_pool_play[t][j] += 1
+                            pools[i][j] += 1
+
 
     all_combinations_sum = 0
     for i in range(num_groups):
@@ -228,6 +238,11 @@ def model(num_teams=32,
             print('pool%i%i = %i' % (i,j,pools[i][j]))
             all_combinations_sum += pools[i][j]
     print('all combinations sum to',all_combinations_sum)
+
+    for i in range(num_groups):
+        for t in groups[i]:
+            for j in range(num_groups):
+                print('team %i versus pool %i = %i' % (t,j,team_pool_play[t][j]))
 
 if __name__ == '__main__':
     model()
