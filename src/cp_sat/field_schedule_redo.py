@@ -85,8 +85,11 @@ def model(num_teams=32,
                         pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
                 # over all the days, have to play each pool at least once
                 model.AddBoolOr(pool_play[t][ppj])
-                # model.Add(sum(pool_balance[ppi][ppj]) == 10)
-
+    # now for group to group, balance play
+    # 10 is hardcoded for now
+    for ppi in range(num_groups):
+        for ppj in range(num_groups):
+            model.Add(sum(pool_balance[ppi][ppj]) == 10)
 
     # for this loop list possible opponents
     # each day, team t plays either home or away, but only once
