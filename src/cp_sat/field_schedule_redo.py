@@ -13,6 +13,11 @@ def model(num_teams=32,
 
     model = cp_model.CpModel()
 
+    num_homegames = int(num_matchdays//2)
+    home_hard_constraint = True
+    if num_matchdays % 2:
+        home_hard_constraint = False
+
     groups = []
     group_size = int(num_teams//num_groups)
     for g in range(num_groups):
@@ -24,7 +29,6 @@ def model(num_teams=32,
     matchdays = range(num_matchdays)
     matches = range(num_matches_per_day)
     teams = range(num_teams)
-
     # how many possible unique games?
     unique_games = (num_teams)*(num_teams-1)/2
 
@@ -37,7 +41,7 @@ def model(num_teams=32,
     # 10 teams for 45 possible unique combinations of teams, then 90
     # // 45 + 1 = 3. Hmm.  Should be 2
     matchups = int((total_games // unique_games) + 1)
-    print(matchups)
+    # print(matchups)
     # there is a special case, if total games / unique games == total
     # games // unique games, then the constraint can be ==, not <=
     matchups_exact = False
@@ -49,6 +53,7 @@ def model(num_teams=32,
 
     fixtures = [] # all possible games
     at_home = []  # whether or not a team plays at home on matchday
+    all_home_games = [] # across all match days, home games for team
     pool_play = [] # play between pools, for team vs pool balancing
     pool_balance = [] # also play between pools, for pool vs pool
 
@@ -64,6 +69,18 @@ def model(num_teams=32,
                     model.Add(fixtures[d][i][j] == 0) # forbid playing self
             # is team i playing at home on day d?
             at_home[d].append(model.NewBoolVar('team %i is home on matchday %i' % (i,d)))
+
+    # balance home and away games
+    for t in teams:
+        all_home_games.append([])
+        for d in matchdays:
+            all_home_games[t] += fixtures[d][t]
+        if home_hard_constraint:
+            model.Add(sum(all_home_games) == num_homegames)
+        else:
+            # odd number of games, so might have one more or one less homegame
+            model.Add(sum(all_home_games) >= num_homegames)
+            model.Add(sum(all_home_games) <= num_homegames+1)
 
     # pool play loop
     # home team group is outer loop
@@ -158,6 +175,9 @@ def model(num_teams=32,
                 model.AddImplication(fixtures[d][t][opponent], at_home[d][t])
                 model.AddImplication(fixtures[d][t][opponent], at_home[d][opponent].Not())
 
+    # balance home and away games?
+
+
     # forbid sequence of 3 homes or 3 aways in a row
     for t in teams:
         for d in range(num_matchdays - 2):
@@ -167,8 +187,6 @@ def model(num_teams=32,
             model.AddBoolOr([at_home[d][t].Not(),
                              at_home[d+1][t].Not(),
                              at_home[d+2][t].Not()])
-
-    # spread play evenly between team groups
 
 
 
