@@ -67,24 +67,43 @@ def model(num_teams=32,
 
     # pool play loop
     # home team group is outer loop
+
+    # prep the arrays
+    for t in teams:
+        pool_play.append([])
+        for ppi in range(num_groups):
+            pool_play[t].append([])
+
     for ppi in range(num_groups):
         pool_balance.append([])
+        for ppj in range(num_groups):
+            pool_balance[ppi].append([])
+
+
+    for ppi in range(num_groups):
         for t in groups[ppi]:
-            pool_play.append([])
             # other team group is inner loop
             for ppj in range(num_groups):
-                pool_balance[ppi].append([])
-                pool_play[t].append([])
                 # over all the days, have to play each pool at least once
                 for d in matchdays:
                     for opponent in groups[ppj]:
                         if t == opponent:
                             # cannot play self
                             continue
+                        # save case of t is home, playing vs pool j
                         pool_play[t][ppj].append(fixtures[d][t][opponent])
+                        # save case of t is away, playing vs pool j
+                        pool_play[t][ppj].append(fixtures[d][opponent][t])
+                        # save pool home vs pool away case
                         pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
-                # over all the days, have to play each pool at least once
-                model.AddBoolOr(pool_play[t][ppj])
+
+    # pulling this out of the above loop for safety
+    for t in teams:
+        for ppi in range(num_groups):
+            # over all the days, have to play each pool at least once
+            # model.AddBoolOr(pool_play[t][ppj])
+            # in order to require more than one, use Add(sum(...))
+            model.Add(sum(pool_play[t][ppi]) >= 2)
     # now for group to group, balance play
     # 10 is hardcoded for now
     for ppi in range(num_groups):
@@ -194,14 +213,15 @@ def model(num_teams=32,
     print('  - branches  : %i' % solver.NumBranches())
     print('  - wall time : %f s' % solver.WallTime())
 
+    if status == cp_model.INFEASIBLE:
+        return status
+
     # these should sum to 10 each
-    pools = []
+    pool_vs_pool = []
     # these should be balanced
     team_pool_play=[]
     for i in range(num_groups):
-        pools.append([])
-        for j in range(num_groups):
-            pools[i].append(0)
+        pool_vs_pool.append([0 for j in range(num_groups)])
         for t in groups[i]:
             team_pool_play.append([])
             for j in range(num_groups):
@@ -209,8 +229,6 @@ def model(num_teams=32,
                     team_pool_play[t].append(0)
 
 
-    if status == cp_model.INFEASIBLE:
-        return status
 
     for d in matchdays:
         game = 0
@@ -227,16 +245,20 @@ def model(num_teams=32,
                 for j in range(num_groups):
                     for other in groups[j]:
                         home = solver.Value(fixtures[d][t][other])
+                        away = solver.Value(fixtures[d][other][t])
                         if home:
                             team_pool_play[t][j] += 1
                             pools[i][j] += 1
+                        if away:
+                            # t is away, but still playing vs pool j
+                            team_pool_play[t][j] += 1
 
 
     all_combinations_sum = 0
     for i in range(num_groups):
         for j in range(num_groups):
-            print('pool%i%i = %i' % (i,j,pools[i][j]))
-            all_combinations_sum += pools[i][j]
+            print('pool % at home vs pool % away, count = %'%(i,j,pool_vs_pool[i][j]))
+            all_combinations_sum += pool_vs_pool[i][j]
     print('all combinations sum to',all_combinations_sum)
 
     for i in range(num_groups):
