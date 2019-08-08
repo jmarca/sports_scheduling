@@ -110,7 +110,7 @@ def model(num_teams=32,
                         # save case of t is home, playing vs pool j
                         pool_play[t][ppj].append(fixtures[d][t][opponent])
                         # save case of t is away, playing vs pool j
-                        pool_play[t][ppj].append(fixtures[d][opponent][t])
+                        ## pool_play[t][ppj].append(fixtures[d][opponent][t])
                         # save pool home vs pool away case
                         pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
 
@@ -120,7 +120,7 @@ def model(num_teams=32,
             # over all the days, have to play each pool at least once
             # model.AddBoolOr(pool_play[t][ppj])
             # in order to require more than one, use Add(sum(...))
-            model.Add(sum(pool_play[t][ppi]) >= 2)
+            model.Add(sum(pool_play[t][ppi]) >= 1)
     # now for group to group, balance play
     # 10 is hardcoded for now
     for ppi in range(num_groups):
