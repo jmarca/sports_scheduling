@@ -18,19 +18,6 @@ def model(num_teams=32,
 
     model = cp_model.CpModel()
 
-    num_homegames = int(num_matchdays//2)
-    home_hard_constraint = True
-    if num_matchdays % 2:
-        home_hard_constraint = False
-
-    pools = []
-    pool_size = int(num_teams//num_pools)
-    for g in range(num_pools):
-        if g < num_pools-1:
-            pools.append(list(range(int(g*pool_size),int((g+1)*pool_size))))
-        else:
-            pools.append(list(range(int(g*pool_size),num_teams)))
-
     matchdays = range(num_matchdays)
     matches = range(num_matches_per_day)
     teams = range(num_teams)
@@ -59,8 +46,23 @@ def model(num_teams=32,
     fixtures = [] # all possible games
     at_home = []  # whether or not a team plays at home on matchday
     all_home_games = [] # across all match days, home games for team
+
     pool_play = [] # play between pools, for team vs pool balancing
     pool_balance = [] # also play between pools, for pool vs pool
+    # now for pool to pool, balance play
+    # expected number is...um
+    # number of pools cross number of pools divided into number of days to play
+    pools = []
+    pool_size = int(num_teams//num_pools)
+    for g in range(num_pools):
+        if g < num_pools-1:
+            pools.append(list(range(int(g*pool_size),int((g+1)*pool_size))))
+        else:
+            pools.append(list(range(int(g*pool_size),num_teams)))
+
+    combos = num_pools * num_pools
+    pool_count = int(total_games // combos)
+    pool_count_hard_constraint = total_games % combos == 0
 
     for d in matchdays:
         fixtures.append([])
@@ -128,11 +130,16 @@ def model(num_teams=32,
             # model.AddBoolOr(pool_play[t][ppj])
             # in order to require more than one, use Add(sum(...))
             model.Add(sum(pool_play[t][ppi]) >= 2)
-    # now for pool to pool, balance play
-    # 10 is hardcoded for now
+
+
     for ppi in range(num_pools):
         for ppj in range(num_pools):
-            model.Add(sum(pool_balance[ppi][ppj]) == 10)
+            if pool_count_hard_constraint:
+                model.Add(sum(pool_balance[ppi][ppj]) == pool_count)
+            else:
+                model.Add(sum(pool_balance[ppi][ppj]) >= pool_count)
+                model.Add(sum(pool_balance[ppi][ppj]) <= pool_count+1)
+
 
     # for this loop list possible opponents
     # each day, team t plays either home or away, but only once
@@ -323,7 +330,7 @@ def main():
     parser.add_argument('-p,--pools', type=int, dest='num_pools',default=4,
                         help='CSV file for dumping output for demand details (including invalid demands, etc)')
 
-    parser.add_argument('--csv', type=str, dest='csv_file', default='output.csv',
+    parser.add_argument('--csv', type=str, dest='csv', default='output.csv',
                         help='A file to dump the team assignments.  Default is output.csv')
 
     parser.add_argument('--timelimit', type=int, dest='timelimit', default=10,
@@ -345,7 +352,14 @@ def main():
         num_matches_per_day = args.num_teams - 1
 
 
-    model()
+    model(args.num_teams,
+          args.num_matchdays,
+          num_matches_per_day,
+          args.num_pools,
+          args.max_home_stand,
+          args.cpu,
+          args.csv,
+          args.debug)
 
 if __name__ == '__main__':
     main()
