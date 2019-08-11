@@ -4,11 +4,66 @@ from ortools.sat.python import cp_model
 
 # going to follow along with sports_scheduling_sat.cc from OR Tools
 # sourcecode examples
+def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
+    matchdays = range(num_matchdays)
+    teams = range(num_teams)
+    num_pools = len(pools)
+
+    # these should sum to 10 each
+    pool_vs_pool = []
+    # these should be balanced
+    team_pool_play=[]
+    for i in range(num_pools):
+        pool_vs_pool.append([0 for j in range(num_pools)])
+        for t in pools[i]:
+            team_pool_play.append([])
+            for j in range(num_pools):
+                for other in pools[j]:
+                    team_pool_play[t].append(0)
+
+
+
+    for d in matchdays:
+        game = 0
+        for t in teams:
+            for other in teams:
+                home = solver.Value(fixtures[d][t][other])
+                if home:
+                    game += 1
+                    print('day %i game %i home %i away %i' %(d+1,game,t+1,other+1))
+
+    for d in matchdays:
+        for i in range(num_pools):
+            for t in pools[i]:
+                for j in range(num_pools):
+                    for other in pools[j]:
+                        home = solver.Value(fixtures[d][t][other])
+                        away = solver.Value(fixtures[d][other][t])
+                        if home:
+                            team_pool_play[t][j] += 1
+                            pool_vs_pool[i][j] += 1
+                        if away:
+                            # t is away, but still playing vs pool j
+                            team_pool_play[t][j] += 1
+
+
+    all_combinations_sum = 0
+    for i in range(num_pools):
+        for j in range(num_pools):
+            print('pool %i at home vs pool %i away, count = %i'%(i,j,pool_vs_pool[i][j]))
+            all_combinations_sum += pool_vs_pool[i][j]
+    print('all combinations sum to',all_combinations_sum)
+
+    for i in range(num_pools):
+        for t in pools[i]:
+            for j in range(num_pools):
+                print('team %i versus pool %i = %i' % (t+1,j,team_pool_play[t][j]))
 
 def model(num_teams=32,
           num_matchdays=10,
           num_matches_per_day=16,
           num_pools=4,
+          hard_pool_vs_pool_constraint=False,
           max_home_stand=2,
           timelimit=None,
           cpu=None,
@@ -17,6 +72,12 @@ def model(num_teams=32,
 ):
 
     model = cp_model.CpModel()
+
+    print('num_teams',          num_teams,
+          'num_matchdays',      num_matchdays,
+          'num_matches_per_day',num_matches_per_day,
+          'num_pools',          num_pools,
+          'max_home_stand',     max_home_stand)
 
     matchdays = range(num_matchdays)
     matches = range(num_matches_per_day)
@@ -39,9 +100,9 @@ def model(num_teams=32,
     matchups_exact = False
     if (total_games % unique_games == 0):
         matchups_exact = True
-        matchups = total_games // unique_games
+        matchups = int(total_games // unique_games)
 
-
+    print('expected matchups per pair',matchups, 'exact?',matchups_exact)
 
     fixtures = [] # all possible games
     at_home = []  # whether or not a team plays at home on matchday
@@ -58,11 +119,19 @@ def model(num_teams=32,
         if g < num_pools-1:
             pools.append(list(range(int(g*pool_size),int((g+1)*pool_size))))
         else:
+            # Last pool might need to be bigger.  If this ever gets used
+            # in anger, the remainder should be spread over multiple
+            # pools.
             pools.append(list(range(int(g*pool_size),num_teams)))
 
-    combos = num_pools * num_pools
-    pool_count = int(total_games // combos)
-    pool_count_hard_constraint = total_games % combos == 0
+    print('pool balancing details:',
+          '\nnumber teams', num_teams,
+          '\nunique games', unique_games,
+          '\ntotal games possible', total_games,
+          '\nnumber pools',                 num_pools,
+          '\nnumber matchdays',             num_matchdays,
+          '\nis pool vs pool equality constraint',hard_pool_vs_pool_constraint
+          )
 
     for d in matchdays:
         fixtures.append([])
@@ -129,17 +198,53 @@ def model(num_teams=32,
             # over all the days, have to play each pool at least once
             # model.AddBoolOr(pool_play[t][ppj])
             # in order to require more than one, use Add(sum(...))
-            model.Add(sum(pool_play[t][ppi]) >= 2)
+
+            # special case of playing versus own pool
+            # because can't play against self
+            my_size = len(pools[ppi])
+            other_size = len(pools[ppj])
+            # this team vs all other teams, figure max games vs this pool
+            pool_matchup_count = int(other_size)
+            if t in pools[ppi]:
+                # "other pool" is actually my pool.  can't play self
+                pool_matchup_count = int((my_size-1))
+                #assert 0
+            local_count = matchups*pool_matchup_count
+            if not matchups_exact:
+                # in this case, last round of matchups is not complete.  must play less
+                games_remaining = total_games - ((matchups-1)*unique_games)
+                print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
+                print(local_count,'becomes...')
+                local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
+                print(local_count)
+                    # assert 0
+            model.Add(sum(pool_play[t][ppi]) >= local_count)
 
 
     for ppi in range(num_pools):
         for ppj in range(num_pools):
-            if pool_count_hard_constraint:
-                model.Add(sum(pool_balance[ppi][ppj]) == pool_count)
+            my_size = len(pools[ppi])
+            other_size = len(pools[ppj])
+            pool_matchup_count = int(my_size*other_size/2)
+            if ppi==ppj:
+                pool_matchup_count = int(my_size*(other_size-1)/2)
+            total_count = int(matchups*pool_matchup_count)
+            if not matchups_exact:
+                games_remaining = total_games - ((matchups-1)*unique_games)
+                print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(pool_matchup_count/unique_games))
+                print(total_count,'becomes...')
+                total_count = int((matchups-1)*pool_matchup_count + (games_remaining*pool_matchup_count//unique_games))
+                print(total_count)
+            if hard_pool_vs_pool_constraint:
+                model.Add(sum(pool_balance[ppi][ppj]) == total_count)
             else:
-                model.Add(sum(pool_balance[ppi][ppj]) >= pool_count)
-                model.Add(sum(pool_balance[ppi][ppj]) <= pool_count+1)
+                if ppi == ppj:
+                    model.Add(sum(pool_balance[ppi][ppj]) >= total_count)
+                else:
+                    model.Add(sum(pool_balance[ppi][ppj]) == total_count)
 
+                #     model.Add(sum(pool_balance[ppi][ppj]) <= local_count+1)
+    #assert 0
 
     # for this loop list possible opponents
     # each day, team t plays either home or away, but only once
@@ -156,7 +261,13 @@ def model(num_teams=32,
             model.Add(sum(possible_opponents) == 1) # can only play one game per day
 
     # each matchup between teams happens at most "matchups" times per season
-    days_to_play = unique_games // num_matches_per_day
+    # want to add a constraint here to force alternating home and away for same team matchups
+    days_to_play = int(unique_games // num_matches_per_day)
+    print('unique_games',unique_games,
+          '\nnum matches per day',num_matches_per_day,
+          '\ndays to play',days_to_play,
+          '\ntotal games possible',total_games)
+    # assert 0
     for t in teams:
         # I think I can reduce constraints by using the next loop
         # for opponent in range(t+1,num_teams):
@@ -164,21 +275,37 @@ def model(num_teams=32,
         for opponent in teams:
             if t == opponent:
                 continue
-
+            prior_home = []
             for m in range(matchups):
+                current_home = []
                 pairings = []
                 # if m = matchups - 1, then last time through
                 days = int(days_to_play)
                 if m == matchups - 1:
                     days = int(min(days_to_play,num_matchdays - m*days_to_play))
+                # print('days',days)
                 for d in range(days):
                     theday = int(d + m*days_to_play)
+                    # print('theday',theday)
                     pairings.append(fixtures[theday][t][opponent])
                     pairings.append(fixtures[theday][opponent][t])
+                    # current_home.append(fixtures[theday][t][opponent])
                 if m == matchups-1 and not matchups_exact:
+                    # print('last matchup',m,'relaxed pairings constraint')
                     model.Add(sum(pairings) <= 1)
                 else:
+                    # if m == matchups-1:
+                    #     print('last matchup',m,'hard pairings constraint')
+                    # else:
+                    #     print('matchup',m,'hard pairings constraint')
                     model.Add(sum(pairings) == 1)
+                # print(pairings)
+                # if matchups > 1 and m > 0:
+                #     model.Add(sum(prior_home) != sum(current_home))
+                # if matchups > 1:
+                #     prior_home = current_home
+                # assert 0
+
 
     # maintain at_home[day][team]
     for d in matchdays:
@@ -260,75 +387,34 @@ def model(num_teams=32,
     if status == cp_model.INFEASIBLE:
         return status
 
-    # these should sum to 10 each
-    pool_vs_pool = []
-    # these should be balanced
-    team_pool_play=[]
-    for i in range(num_pools):
-        pool_vs_pool.append([0 for j in range(num_pools)])
-        for t in pools[i]:
-            team_pool_play.append([])
-            for j in range(num_pools):
-                for other in pools[j]:
-                    team_pool_play[t].append(0)
+    screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays)
 
+    if csv:
+        csv_dump_results(solver,fixtures)
 
-
-    for d in matchdays:
-        game = 0
-        for t in teams:
-            for other in teams:
-                home = solver.Value(fixtures[d][t][other])
-                if home:
-                    game += 1
-                    print('day %i game %i home %i away %i' %(d+1,game,t+1,other+1))
-
-    for d in matchdays:
-        for i in range(num_pools):
-            for t in pools[i]:
-                for j in range(num_pools):
-                    for other in pools[j]:
-                        home = solver.Value(fixtures[d][t][other])
-                        away = solver.Value(fixtures[d][other][t])
-                        if home:
-                            team_pool_play[t][j] += 1
-                            pool_vs_pool[i][j] += 1
-                        if away:
-                            # t is away, but still playing vs pool j
-                            team_pool_play[t][j] += 1
-
-
-    all_combinations_sum = 0
-    for i in range(num_pools):
-        for j in range(num_pools):
-            print('pool %i at home vs pool %i away, count = %i'%(i,j,pool_vs_pool[i][j]))
-            all_combinations_sum += pool_vs_pool[i][j]
-    print('all combinations sum to',all_combinations_sum)
-
-    for i in range(num_pools):
-        for t in pools[i]:
-            for j in range(num_pools):
-                print('team %i versus pool %i = %i' % (t+1,j,team_pool_play[t][j]))
-
-    # print break results, to get a clue what they are doing
-    print('Breaks')
-    for b in breaks:
-        print('  %s is %i' % (b.Name(), solver.Value(b)))
+    # # print break results, to get a clue what they are doing
+    # print('Breaks')
+    # for b in breaks:
+    #     print('  %s is %i' % (b.Name(), solver.Value(b)))
 
 def main():
     """Entry point of the program."""
     parser = argparse.ArgumentParser(description='Solve sports league match play assignment problem')
-    parser.add_argument('-t,--teams', type=int, dest='num_teams',
+    parser.add_argument('-t,--teams', type=int, dest='num_teams', required=True,
                         help='Number of teams in the league')
 
-    parser.add_argument('-d,--days', type=int, dest='num_matchdays',
+    parser.add_argument('-d,--days', type=int, dest='num_matchdays', required=True,
                         help='Number of days on which matches are played.  Default is enough days such that every team can play every other team, or (number of teams - 1)')
 
     parser.add_argument('--matches_per_day', type=int, dest='num_matches_per_day',
                         help='Number of matches played per day.  Default is number of teams divided by 2.  If greater than the number of teams, then this implies some teams will play each other more than once.  In that case, home and away should alternate between the teams in repeated matchups.')
 
-    parser.add_argument('-p,--pools', type=int, dest='num_pools',default=4,
-                        help='CSV file for dumping output for demand details (including invalid demands, etc)')
+    parser.add_argument('-p,--pools', type=int, dest='num_pools',default=1,
+                        help='How many separate pools should the teams be separated into.  Default is 1')
+
+    parser.add_argument('--hard_pool_vs_pool', action='store_true',
+                        dest='hard_pool_vs_pool_constraint',
+                        help='Often a hard pool vs pool constraint results in an infeasible solution, so the default is to relax this constraint.  If you really want to have an equal number of matches in each pool vs pool combination, set this flag.  If the model is infeasible, then you might need to change the number of pools.')
 
     parser.add_argument('--csv', type=str, dest='csv', default='output.csv',
                         help='A file to dump the team assignments.  Default is output.csv')
@@ -338,7 +424,7 @@ def main():
     parser.add_argument('--cpu',type=int,dest='cpu',default=6,
                         help='Number of CPUs to use for solver.  Default is 6')
 
-    parser.add_argument('--debug', type=bool, dest='debug', default=False,
+    parser.add_argument('--debug', action='store_true',
                         help="Turn on some print statements.")
 
     parser.add_argument('--max_home_stand',type=int,dest='max_home_stand',default=2,
@@ -349,13 +435,14 @@ def main():
     # set default for num_matchdays
     num_matches_per_day = args.num_matches_per_day
     if not num_matches_per_day:
-        num_matches_per_day = args.num_teams - 1
+        num_matches_per_day = args.num_teams // 2
 
-
+    # model()
     model(args.num_teams,
           args.num_matchdays,
           num_matches_per_day,
           args.num_pools,
+          args.hard_pool_vs_pool_constraint,
           args.max_home_stand,
           args.cpu,
           args.csv,
