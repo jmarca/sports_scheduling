@@ -1,18 +1,84 @@
 import argparse
+import os
+import re
+import csv
 
 from ortools.sat.python import cp_model
 
-# going to follow along with sports_scheduling_sat.cc from OR Tools
-# sourcecode examples
+# Essentially a translation of sports_scheduling_sat.cc from the C++ example
+
+def csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv_basename):
+    matchdays = range(num_matchdays)
+    teams = range(num_teams)
+
+    vcsv = []
+    for d in matchdays:
+        game = 0
+        for homepool in range(len(pools)):
+            for home in pools[homepool]:
+                for awaypool in range(len(pools)):
+                    for away in pools[awaypool]:
+                        match_on = solver.Value(fixtures[d][home][away])
+                        if match_on:
+                            game += 1
+                            # each row: day,game,home,away,homepool,awaypool
+                            row = {'day':d+1,
+                                   'game':game,
+                                   'home':home+1,
+                                   'away':away+1,
+                                   'home pool':homepool+1,
+                                   'away pool':awaypool+1}
+                            vcsv.append(row)
+
+    # check for any existing file
+    idx = 1
+    checkname = csv_basename
+    match = re.search(r"\.csv", checkname)
+    if not match:
+        print ('looking for a .csv ending in passed in CSV file name.  Did not find it, so appending .csv to',csv_basename)
+        csv_basename += ".csv"
+
+    checkname = csv_basename
+    while os.path.exists(checkname):
+        checkname = re.sub(r"\.csv","_{}.csv".format(idx),csv_basename)
+        idx += 1
+        # or just get rid of it, but that is often undesireable
+        # os.unlink(csv_basename)
+
+
+    with open(checkname, 'w', newline='') as csvfile:
+        fieldnames = ['day','game','home','away','home pool','away pool']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        for row in vcsv:
+            writer.writerow(row)
+
+
 def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
     matchdays = range(num_matchdays)
     teams = range(num_teams)
     num_pools = len(pools)
 
-    # these should sum to 10 each
-    pool_vs_pool = []
-    # these should be balanced
-    team_pool_play=[]
+
+    total_games = 0
+    for d in matchdays:
+        game = 0
+        for home in teams:
+            for away in teams:
+                match_on = solver.Value(fixtures[d][home][away])
+                if match_on:
+                    game += 1
+                    print('day %i game %i home %i away %i' %(d+1,game,home+1,away+1))
+        total_games += game
+
+    # next evaluate team vs pool, pool vs pool
+    #
+    # The expected values for these sums vary depending on problem parameters
+    #
+    pool_vs_pool = []  # list of lists. These should be generally equal if i != j
+    team_pool_play=[]  # list of lists. These should also be roughly equal
+    # initialize both containers to zero values
     for i in range(num_pools):
         pool_vs_pool.append([0 for j in range(num_pools)])
         for t in pools[i]:
@@ -21,54 +87,46 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
                 for other in pools[j]:
                     team_pool_play[t].append(0)
 
-
-
-    for d in matchdays:
-        game = 0
-        for t in teams:
-            for other in teams:
-                home = solver.Value(fixtures[d][t][other])
-                if home:
-                    game += 1
-                    print('day %i game %i home %i away %i' %(d+1,game,t+1,other+1))
-
+    # this loop accumulates match counts for team vs pool and pool vs pool
     for d in matchdays:
         for i in range(num_pools):
             for t in pools[i]:
                 for j in range(num_pools):
                     for other in pools[j]:
-                        home = solver.Value(fixtures[d][t][other])
-                        away = solver.Value(fixtures[d][other][t])
-                        if home:
+                        home_match = solver.Value(fixtures[d][t][other])
+                        away_match = solver.Value(fixtures[d][other][t])
+                        if home_match:
+                            # team t is home, playing vs pool j
                             team_pool_play[t][j] += 1
                             pool_vs_pool[i][j] += 1
-                        if away:
-                            # t is away, but still playing vs pool j
+                        if away_match:
+                            # team t is away, but still playing vs pool j
                             team_pool_play[t][j] += 1
 
+    # this loop prints each team vs pool match counts
+    for i in range(num_pools):
+        for t in pools[i]:
+            for j in range(num_pools):
+                print('team %i (home or away) versus pool %i = %i' % (t+1,j,team_pool_play[t][j]))
 
+    # this loop prints pool vs pool match counts
     all_combinations_sum = 0
     for i in range(num_pools):
         for j in range(num_pools):
             print('pool %i at home vs pool %i away, count = %i'%(i,j,pool_vs_pool[i][j]))
             all_combinations_sum += pool_vs_pool[i][j]
-    print('all combinations sum to',all_combinations_sum)
+    assert all_combinations_sum == total_games
 
-    for i in range(num_pools):
-        for t in pools[i]:
-            for j in range(num_pools):
-                print('team %i versus pool %i = %i' % (t+1,j,team_pool_play[t][j]))
 
-def model(num_teams=32,
-          num_matchdays=10,
-          num_matches_per_day=16,
-          num_pools=4,
-          hard_pool_vs_pool_constraint=False,
-          max_home_stand=2,
-          timelimit=None,
-          cpu=None,
-          csv=None,
-          debug=None
+def assign_matches(num_teams=32,
+                   num_matchdays=10,
+                   num_matches_per_day=16,
+                   num_pools=4,
+                   max_home_stand=2,
+                   time_limit=None,
+                   num_cpus=None,
+                   csv=None,
+                   debug=None
 ):
 
     model = cp_model.CpModel()
@@ -130,7 +188,6 @@ def model(num_teams=32,
           '\ntotal games possible', total_games,
           '\nnumber pools',                 num_pools,
           '\nnumber matchdays',             num_matchdays,
-          '\nis pool vs pool equality constraint',hard_pool_vs_pool_constraint
           )
 
     for d in matchdays:
@@ -146,19 +203,8 @@ def model(num_teams=32,
             # is team i playing at home on day d?
             at_home[d].append(model.NewBoolVar('team %i is home on matchday %i' % (i,d)))
 
-    # balance home and away games?  I think this is redundant with the
-    # "breaks" constraints, later.
-    # for t in teams:
-    #     all_home_games.append([])
-    #     for d in matchdays:
-    #         all_home_games[t] += fixtures[d][t]
-
-    #     if home_hard_constraint:
-    #         model.Add(sum(all_home_games[t]) == num_homegames)
-    #     else:
-    #         # odd number of games, so might have one more or one less homegame
-    #         model.Add(sum(all_home_games[t]) >= num_homegames)
-    #         model.Add(sum(all_home_games[t]) <= num_homegames+1)
+    # balance home and away games?  I think doing so is redundant with
+    # the "breaks" constraints, later.
 
     # pool play loop
     # home team pool is outer loop
@@ -213,10 +259,10 @@ def model(num_teams=32,
             if not matchups_exact:
                 # in this case, last round of matchups is not complete.  must play less
                 games_remaining = total_games - ((matchups-1)*unique_games)
-                print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
-                print(local_count,'becomes...')
+                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
+                # print(local_count,'becomes...')
                 local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
-                print(local_count)
+                # print(local_count)
                     # assert 0
             model.Add(sum(pool_play[t][ppi]) >= local_count)
 
@@ -231,20 +277,18 @@ def model(num_teams=32,
             total_count = int(matchups*pool_matchup_count)
             if not matchups_exact:
                 games_remaining = total_games - ((matchups-1)*unique_games)
-                print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(pool_matchup_count/unique_games))
-                print(total_count,'becomes...')
+                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(pool_matchup_count/unique_games))
+                # print(total_count,'becomes...')
                 total_count = int((matchups-1)*pool_matchup_count + (games_remaining*pool_matchup_count//unique_games))
-                print(total_count)
-            if hard_pool_vs_pool_constraint:
-                model.Add(sum(pool_balance[ppi][ppj]) == total_count)
+                # print(total_count)
+            if ppi == ppj:
+                model.Add(sum(pool_balance[ppi][ppj]) >= total_count)
+                model.Add(sum(pool_balance[ppi][ppj]) <= total_count+1)
             else:
-                if ppi == ppj:
-                    model.Add(sum(pool_balance[ppi][ppj]) >= total_count)
-                else:
-                    model.Add(sum(pool_balance[ppi][ppj]) == total_count)
-
-                #     model.Add(sum(pool_balance[ppi][ppj]) <= local_count+1)
-    #assert 0
+                # hard equality generally works okay here
+                # now that I'm figuring the count properly
+                model.Add(sum(pool_balance[ppi][ppj]) == total_count)
+                #  model.Add(sum(pool_balance[ppi][ppj]) <= local_count+1)
 
     # for this loop list possible opponents
     # each day, team t plays either home or away, but only once
@@ -294,17 +338,8 @@ def model(num_teams=32,
                     # print('last matchup',m,'relaxed pairings constraint')
                     model.Add(sum(pairings) <= 1)
                 else:
-                    # if m == matchups-1:
-                    #     print('last matchup',m,'hard pairings constraint')
-                    # else:
-                    #     print('matchup',m,'hard pairings constraint')
+                    # print('matchup',m,'hard pairings constraint')
                     model.Add(sum(pairings) == 1)
-                # print(pairings)
-                # if matchups > 1 and m > 0:
-                #     model.Add(sum(prior_home) != sum(current_home))
-                # if matchups > 1:
-                #     prior_home = current_home
-                # assert 0
 
 
     # maintain at_home[day][team]
@@ -369,9 +404,9 @@ def model(num_teams=32,
     model.Minimize(sum(breaks))
     # run the solver
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 10800 # three hours.  Only takes about 90 minutes or so
-    solver.parameters.log_search_progress = True
-    solver.parameters.num_search_workers = 6 # oh my god that really speeds things up!
+    solver.parameters.max_time_in_seconds = time_limit
+    solver.parameters.log_search_progress = debug
+    solver.parameters.num_search_workers = num_cpus
 
     # solution_printer = SolutionPrinter() # since we stop at first
     # solution, this isn't really
@@ -387,10 +422,20 @@ def model(num_teams=32,
     if status == cp_model.INFEASIBLE:
         return status
 
+    if status == cp_model.UNKNOWN:
+        print('Not enough time allowed to compute a solution')
+        print('Add more time using the --timelimit command line option')
+        return status
+
     screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays)
 
+    if solver.WallTime() >= time_limit:
+        print('Please note that solver reached maximum time allowed %i.' % time_limit)
+        print('A better solution than %i might be found by adding more time using the --timelimit command line option'% solver.ObjectiveValue())
+
+
     if csv:
-        csv_dump_results(solver,fixtures)
+        csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv)
 
     # # print break results, to get a clue what they are doing
     # print('Breaks')
@@ -412,17 +457,14 @@ def main():
     parser.add_argument('-p,--pools', type=int, dest='num_pools',default=1,
                         help='How many separate pools should the teams be separated into.  Default is 1')
 
-    parser.add_argument('--hard_pool_vs_pool', action='store_true',
-                        dest='hard_pool_vs_pool_constraint',
-                        help='Often a hard pool vs pool constraint results in an infeasible solution, so the default is to relax this constraint.  If you really want to have an equal number of matches in each pool vs pool combination, set this flag.  If the model is infeasible, then you might need to change the number of pools.')
-
     parser.add_argument('--csv', type=str, dest='csv', default='output.csv',
                         help='A file to dump the team assignments.  Default is output.csv')
 
-    parser.add_argument('--timelimit', type=int, dest='timelimit', default=10,
-                        help='Maximum run time for solver, in minutes.  Default is 10 minutes.')
-    parser.add_argument('--cpu',type=int,dest='cpu',default=6,
-                        help='Number of CPUs to use for solver.  Default is 6')
+    parser.add_argument('--timelimit', type=int, dest='time_limit', default=60,
+                        help='Maximum run time for solver, in seconds.  Default is 60 seconds.')
+
+    parser.add_argument('--cpu',type=int,dest='cpu',
+                        help='Number of workers (CPUs) to use for solver.  Default is 6 or number of CPUs available, whichever is lower')
 
     parser.add_argument('--debug', action='store_true',
                         help="Turn on some print statements.")
@@ -437,16 +479,35 @@ def main():
     if not num_matches_per_day:
         num_matches_per_day = args.num_teams // 2
 
-    # model()
-    model(args.num_teams,
-          args.num_matchdays,
-          num_matches_per_day,
-          args.num_pools,
-          args.hard_pool_vs_pool_constraint,
-          args.max_home_stand,
-          args.cpu,
-          args.csv,
-          args.debug)
+
+    ncpu = len(os.sched_getaffinity(0))
+    cpu = args.cpu
+    if not cpu:
+        cpu = min(6,ncpu)
+        print('Setting number of search workers to %i' % cpu)
+
+    if cpu > ncpu:
+        print('You asked for %i workers to be used, but the os only reports %i CPUs available.  This might slow down processing' % (cpu,ncpu))
+
+    if cpu != 6:
+        # don't whinge at user if cpu is set to 6
+        if cpu < ncpu:
+            print('Using %i workers, but there are %i CPUs available.  You might get faster results by using the command line option --cpu %i, but be aware ORTools CP-SAT solver is tuned to 6 CPUs' % (cpu,ncpu,ncpu))
+
+        if cpu > 6:
+            print('Using %i workers.  Be aware ORTools CP-SAT solver is tuned to 6 CPUs' % cpu)
+
+
+    # assign_matches()
+    assign_matches(args.num_teams,
+                   args.num_matchdays,
+                   num_matches_per_day,
+                   args.num_pools,
+                   args.max_home_stand,
+                   args.time_limit,
+                   cpu,
+                   args.csv,
+                   args.debug)
 
 if __name__ == '__main__':
     main()
