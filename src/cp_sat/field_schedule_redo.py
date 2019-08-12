@@ -429,7 +429,7 @@ def assign_matches(num_teams,
 
     screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays)
 
-    if solver.WallTime() >= time_limit:
+    if status != cp_model.OPTIMAL and solver.WallTime() >= time_limit:
         print('Please note that solver reached maximum time allowed %i.' % time_limit)
         print('A better solution than %i might be found by adding more time using the --timelimit command line option'% solver.ObjectiveValue())
 
