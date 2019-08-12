@@ -118,11 +118,11 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
     assert all_combinations_sum == total_games
 
 
-def assign_matches(num_teams=32,
-                   num_matchdays=10,
-                   num_matches_per_day=16,
-                   num_pools=4,
-                   max_home_stand=2,
+def assign_matches(num_teams,
+                   num_matchdays,
+                   num_matches_per_day,
+                   num_pools,
+                   max_home_stand,
                    time_limit=None,
                    num_cpus=None,
                    csv=None,
