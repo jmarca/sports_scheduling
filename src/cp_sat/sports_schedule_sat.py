@@ -1,7 +1,8 @@
 # based on sports_schedulting_sat.cc, Copyright 2010-2018 Google LLC
 #
-# translated to Python by James E. Marca, with the addition of some
-# command line options, inter-pool play constraints, and CSV output dump
+# translated to Python by James E. Marca August 2019, with the
+# addition of some command line options, inter-pool play constraints,
+# and CSV output dump
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
