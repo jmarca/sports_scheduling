@@ -75,8 +75,8 @@ def test_various_options():
 
     # test not unknown, but still not optimal
     process_command_line = ['python','src/sports_schedule_sat.py'
-                            ,'-t','32'
-                            ,'-d','10'
+                            ,'-t','24'
+                            ,'-d','12'
                             ,'-p','4'
                             ,'--cpu','2'
                             ,'--debug'
@@ -86,7 +86,7 @@ def test_various_options():
         proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
         out = proc.stdout
         err = proc.stderr
-        print('out is ',out)
+        print('out (line 89) is ',out)
         assert re.search('FEASIBLE', out, re.MULTILINE)
         assert re.search(r"A better solution than \d+ might be found by adding more time using the --timelimit command line option", out, re.MULTILINE)
         assert re.search('num_search_workers: 2',err,re.MULTILINE)
