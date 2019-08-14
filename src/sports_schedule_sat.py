@@ -140,6 +140,194 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
     assert all_combinations_sum == total_games
 
 
+def collect_pool_play_fixtures(teams,pools,matchdays,fixtures):
+    pool_play=[]
+    pool_balance=[]
+    num_pools = len(pools)
+    # prep the arrays
+    for t in teams:
+        pool_play.append([])
+        for pool in pools:
+            pool_play[t].append([])
+
+    for ppi in pools:
+        ppi_balance = []
+        for ppj in pools:
+            ppi_balance.append([])
+        pool_balance.append(ppi_balance)
+
+
+    for ppi in range(num_pools):
+        for t in pools[ppi]:
+            # other team pool is inner loop
+            for ppj in range(num_pools):
+                # over all the days, have to play each pool at least once
+                for d in matchdays:
+                    for opponent in pools[ppj]:
+                        if t == opponent:
+                            # cannot play self
+                            continue
+                        # save case of t is home, playing vs pool j
+                        pool_play[t][ppj].append(fixtures[d][t][opponent])
+                        # save case of t is away, playing vs pool j
+                        pool_play[t][ppj].append(fixtures[d][opponent][t])
+                        # save pool home vs pool away case
+                        pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
+
+
+    return (pool_play,pool_balance)
+
+def add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,unique_games,total_games):
+    # pulling this out of the above loop for safety
+    for t in range(len(pool_play)):
+        for ppi in range(len(pools)):
+            # over all the days, have to play each pool at least once
+            # model.AddBoolOr(pool_play[t][ppj])
+            # in order to require more than one, use Add(sum(...))
+
+            # special case of playing versus own pool
+            # because can't play against self
+            my_size = len(pools[ppi])
+            # this team vs all other teams, figure max games vs this pool
+            pool_matchup_count = int(my_size)
+            if t in pools[ppi]:
+                # "other pool" is actually my pool.  can't play self
+                pool_matchup_count = int((my_size-1))
+
+            local_count = matchups*pool_matchup_count
+            if not matchups_exact:
+                # in this case, last round of matchups is not complete.  must play less
+                games_remaining = total_games - ((matchups-1)*unique_games)
+                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
+                # print(local_count,'becomes...')
+                local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
+                # print(local_count)
+                    # assert 0
+            model.Add(sum(pool_play[t][ppi]) >= local_count)
+
+def add_pool_balance_constraints(pools,pool_balance,model,matchups,matchups_exact,unique_games,total_games):
+    num_pools = len(pools)
+    for ppi in range(num_pools):
+        my_size = len(pools[ppi])
+        for ppj in range(num_pools):
+            other_size = len(pools[ppj])
+            pool_matchup_count = int(my_size*other_size/2)
+            if ppi==ppj:
+                pool_matchup_count = int(my_size*(my_size-1)/2)
+            total_count = int(matchups*pool_matchup_count)
+            if not matchups_exact:
+                games_remaining = total_games - ((matchups-1)*unique_games)
+                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(pool_matchup_count/unique_games))
+                # print(total_count,'becomes...')
+                total_count = int((matchups-1)*pool_matchup_count + (games_remaining*pool_matchup_count//unique_games))
+                # print(total_count)
+            if ppi == ppj:
+                model.Add(sum(pool_balance[ppi][ppj]) >= total_count)
+                model.Add(sum(pool_balance[ppi][ppj]) <= total_count+1)
+            else:
+                # hard equality generally works okay here
+                # now that I'm figuring the count properly
+                model.Add(sum(pool_balance[ppi][ppj]) == total_count)
+                #  model.Add(sum(pool_balance[ppi][ppj]) <= local_count+1)
+
+def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
+    # loop to list possible opponents for each team
+    # each day, team t plays either home or away, but only once
+    # or later, once becomes matches_per_day?
+    for d in matchdays:
+        for t in teams:
+            possible_opponents=[]
+            for opponent in teams:
+                if t == opponent:
+                    continue
+                # t is home possibility
+                possible_opponents.append(fixtures[d][t][opponent])
+                # t is away possibility
+                possible_opponents.append(fixtures[d][opponent][t])
+            model.Add(sum(possible_opponents) == 1) # can only play one game per day
+
+def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
+    days_to_play = int(unique_games // matches_per_day)
+    # print('unique_games',unique_games,
+    #       '\nnum matches per day',matches_per_day,
+    #       '\ndays to play',days_to_play,
+    #       '\ntotal games possible',total_games)
+    for t in teams:
+        # I think I can reduce constraints by using the next loop
+        # for opponent in range(t+1,num_teams):
+        # but for first pass, keep with the one from C++ code
+        for opponent in teams:
+            if t == opponent:
+                continue
+            prior_home = []
+            for m in range(matchups):
+                current_home = []
+                pairings = []
+                # if m = matchups - 1, then last time through
+                days = int(days_to_play)
+                if m == matchups - 1:
+                    days = int(min(days_to_play,num_matchdays - m*days_to_play))
+                # print('days',days)
+                for d in range(days):
+                    theday = int(d + m*days_to_play)
+                    # print('theday',theday)
+                    pairings.append(fixtures[theday][t][opponent])
+                    pairings.append(fixtures[theday][opponent][t])
+                    # current_home.append(fixtures[theday][t][opponent])
+                if m == matchups-1 and not matchups_exact:
+                    # print('last matchup',m,'relaxed pairings constraint')
+                    model.Add(sum(pairings) <= 1)
+                else:
+                    # print('matchup',m,'hard pairings constraint')
+                    model.Add(sum(pairings) == 1)
+def add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand):
+    # forbid sequence of 3 homes or 3 aways in a row
+    for t in teams:
+        for d in range(num_matchdays - max_home_stand):
+            model.AddBoolOr([at_home[d+offset][t] for offset in range(max_home_stand+1)])
+            model.AddBoolOr([at_home[d+offset][t].Not() for offset in range(max_home_stand+1)])
+            # note, this works because AddBoolOr means at least one
+            # element must be true.  if it was just AddBoolOr([home0,
+            # home1, ..., homeN]), then that would mean that one or
+            # all of these could be true, and you could have an
+            # infinite sequence of home games.  However, that home
+            # constraint is matched with an away constraint.  So the
+            # combination says:
+            #
+            # AddBoolOr([home0, ... homeN]) at least one of these is true
+            # AddBoolOr([away0, ... awayN]) at least one of these is true
+            #
+            # taken together, at least one home from 0 to N is true,
+            # which means at least one away0 to awayN is false.  At
+            # the same time, at least one away is true, which means
+            # that the corresponding home is false.  So together, this
+            # prevents a sequence of one more than max_home_stand to
+            # take place.
+
+def add_breaks_constraint(teams,at_home,num_matchdays,model):
+    breaks = []
+    for t in teams:
+        for d in range(num_matchdays-1):
+            breaks.append(model.NewBoolVar('two home or two away for team %i, starting on matchday %i' % (t,d)))
+
+            model.AddBoolOr([at_home[d][t],at_home[d+1][t],breaks[-1]])
+            model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t].Not(),breaks[-1]])
+
+            model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t],breaks[-1].Not()])
+            model.AddBoolOr([at_home[d][t],at_home[d+1][t].Not(),breaks[-1].Not()])
+
+            # I couldn't figure this out, so I wrote a little program
+            # and proved it.  These effectively are identical to
+            #
+            # model.Add(at_home[d][t] == at_home[d+1][t]).OnlyEnforceIf(breaks[-1])
+            # model.Add(at_home[d][t] != at_home[d+1][t]).OnlyEnforceIf(breaks[-1].Not())
+            #
+            # except they are a little more efficient, I believe.  Wrote it up in a blog post
+
+    model.Add(sum(breaks) >= num_matchdays)
+    return breaks
+
+
 def assign_matches(num_teams,
                    num_matchdays,
                    num_matches_per_day,
@@ -225,146 +413,12 @@ def assign_matches(num_teams,
             # is team i playing at home on day d?
             at_home[d].append(model.NewBoolVar('team %i is home on matchday %i' % (i,d)))
 
-    # balance home and away games?  I think doing so is redundant with
-    # the "breaks" constraints, later.
-
-    # pool play loop
-    # home team pool is outer loop
-
-    # prep the arrays
-    for t in teams:
-        pool_play.append([])
-        for ppi in range(num_pools):
-            pool_play[t].append([])
-
-    for ppi in range(num_pools):
-        pool_balance.append([])
-        for ppj in range(num_pools):
-            pool_balance[ppi].append([])
-
-
-    for ppi in range(num_pools):
-        for t in pools[ppi]:
-            # other team pool is inner loop
-            for ppj in range(num_pools):
-                # over all the days, have to play each pool at least once
-                for d in matchdays:
-                    for opponent in pools[ppj]:
-                        if t == opponent:
-                            # cannot play self
-                            continue
-                        # save case of t is home, playing vs pool j
-                        pool_play[t][ppj].append(fixtures[d][t][opponent])
-                        # save case of t is away, playing vs pool j
-                        pool_play[t][ppj].append(fixtures[d][opponent][t])
-                        # save pool home vs pool away case
-                        pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
-
-    # pulling this out of the above loop for safety
-    for t in teams:
-        for ppi in range(num_pools):
-            # over all the days, have to play each pool at least once
-            # model.AddBoolOr(pool_play[t][ppj])
-            # in order to require more than one, use Add(sum(...))
-
-            # special case of playing versus own pool
-            # because can't play against self
-            my_size = len(pools[ppi])
-            other_size = len(pools[ppj])
-            # this team vs all other teams, figure max games vs this pool
-            pool_matchup_count = int(other_size)
-            if t in pools[ppi]:
-                # "other pool" is actually my pool.  can't play self
-                pool_matchup_count = int((my_size-1))
-                #assert 0
-            local_count = matchups*pool_matchup_count
-            if not matchups_exact:
-                # in this case, last round of matchups is not complete.  must play less
-                games_remaining = total_games - ((matchups-1)*unique_games)
-                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
-                # print(local_count,'becomes...')
-                local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
-                # print(local_count)
-                    # assert 0
-            model.Add(sum(pool_play[t][ppi]) >= local_count)
-
-
-    for ppi in range(num_pools):
-        for ppj in range(num_pools):
-            my_size = len(pools[ppi])
-            other_size = len(pools[ppj])
-            pool_matchup_count = int(my_size*other_size/2)
-            if ppi==ppj:
-                pool_matchup_count = int(my_size*(other_size-1)/2)
-            total_count = int(matchups*pool_matchup_count)
-            if not matchups_exact:
-                games_remaining = total_games - ((matchups-1)*unique_games)
-                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(pool_matchup_count/unique_games))
-                # print(total_count,'becomes...')
-                total_count = int((matchups-1)*pool_matchup_count + (games_remaining*pool_matchup_count//unique_games))
-                # print(total_count)
-            if ppi == ppj:
-                model.Add(sum(pool_balance[ppi][ppj]) >= total_count)
-                model.Add(sum(pool_balance[ppi][ppj]) <= total_count+1)
-            else:
-                # hard equality generally works okay here
-                # now that I'm figuring the count properly
-                model.Add(sum(pool_balance[ppi][ppj]) == total_count)
-                #  model.Add(sum(pool_balance[ppi][ppj]) <= local_count+1)
-
-    # for this loop list possible opponents
-    # each day, team t plays either home or away, but only once
-    for d in matchdays:
-        for t in teams:
-            possible_opponents=[]
-            for opponent in teams:
-                if t == opponent:
-                    continue
-                # t is home possibility
-                possible_opponents.append(fixtures[d][t][opponent])
-                # t is away possibility
-                possible_opponents.append(fixtures[d][opponent][t])
-            model.Add(sum(possible_opponents) == 1) # can only play one game per day
-
-    # each matchup between teams happens at most "matchups" times per season
-    # want to add a constraint here to force alternating home and away for same team matchups
-    days_to_play = int(unique_games // num_matches_per_day)
-    print('unique_games',unique_games,
-          '\nnum matches per day',num_matches_per_day,
-          '\ndays to play',days_to_play,
-          '\ntotal games possible',total_games)
-    # assert 0
-    for t in teams:
-        # I think I can reduce constraints by using the next loop
-        # for opponent in range(t+1,num_teams):
-        # but for first pass, keep with the one from C++ code
-        for opponent in teams:
-            if t == opponent:
-                continue
-            prior_home = []
-            for m in range(matchups):
-                current_home = []
-                pairings = []
-                # if m = matchups - 1, then last time through
-                days = int(days_to_play)
-                if m == matchups - 1:
-                    days = int(min(days_to_play,num_matchdays - m*days_to_play))
-                # print('days',days)
-                for d in range(days):
-                    theday = int(d + m*days_to_play)
-                    # print('theday',theday)
-                    pairings.append(fixtures[theday][t][opponent])
-                    pairings.append(fixtures[theday][opponent][t])
-                    # current_home.append(fixtures[theday][t][opponent])
-                if m == matchups-1 and not matchups_exact:
-                    # print('last matchup',m,'relaxed pairings constraint')
-                    model.Add(sum(pairings) <= 1)
-                else:
-                    # print('matchup',m,'hard pairings constraint')
-                    model.Add(sum(pairings) == 1)
-
-
-    # maintain at_home[day][team]
+    # link at_home[day][team] in terms of fixtures
+    #
+    # Note this might have issues if byes are valid.  In that case, if
+    # a team has a bye on a match day, it plays neither home nor away.
+    # But at_home[d][t] == False implies away, when it might be a by
+    # if the team t does not play that day
     for d in matchdays:
         for t in teams:
             for opponent in teams:
@@ -373,56 +427,29 @@ def assign_matches(num_teams,
                 model.AddImplication(fixtures[d][t][opponent], at_home[d][t])
                 model.AddImplication(fixtures[d][t][opponent], at_home[d][opponent].Not())
 
-    # balance home and away games?
+
+    (pool_play,pool_balance) = collect_pool_play_fixtures(teams,pools,matchdays,fixtures)
+
+    add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,unique_games,total_games)
+
+    add_pool_balance_constraints(pools,pool_balance,model,matchups,matchups_exact,unique_games,total_games)
+
+    add_one_game_per_day(matchdays,num_matches_per_day,teams,fixtures,model)
+
+    # each matchup between teams happens at most "matchups" times per season
+    # want to add a constraint here to force alternating home and away for same team matchups
+    # assert 0
+    add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,num_matches_per_day,num_matchdays)
 
 
-    # forbid sequence of 3 homes or 3 aways in a row
-    for t in teams:
-        for d in range(num_matchdays - max_home_stand):
-            model.AddBoolOr([at_home[d+offset][t] for offset in range(max_home_stand+1)])
-            model.AddBoolOr([at_home[d+offset][t].Not() for offset in range(max_home_stand+1)])
-            # note, this works because AddBoolOr means at least one
-            # element must be true.  if it was just AddBoolOr([home0,
-            # home1, ..., homeN]), then that would mean that one or
-            # all of these could be true, and you could have an
-            # infinite sequence of home games.  However, that home
-            # constraint is matched with an away constraint.  So the
-            # combination says:
-            #
-            # AddBoolOr([home0, ... homeN]) at least one of these is true
-            # AddBoolOr([away0, ... awayN]) at least one of these is true
-            #
-            # taken together, at least one home from 0 to N is true,
-            # which means at least one away0 to awayN is false.  At
-            # the same time, at least one away is true, which means
-            # that the corresponding home is false.  So together, this
-            # prevents a sequence of one more than max_home_stand to
-            # take place.
+    add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand)
 
-    # objective using breaks concept
-    breaks = []
-    for t in teams:
-        for d in range(num_matchdays-1):
-            breaks.append(model.NewBoolVar('two home or two away for team %i, starting on matchday %i' % (t,d)))
-
-            model.AddBoolOr([at_home[d][t],at_home[d+1][t],breaks[-1]])
-            model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t].Not(),breaks[-1]])
-
-            model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t],breaks[-1].Not()])
-            model.AddBoolOr([at_home[d][t],at_home[d+1][t].Not(),breaks[-1].Not()])
-
-            # I couldn't figure this out, so I wrote a little program
-            # and proved it.  These effectively are identical to
-            #
-            # model.Add(at_home[d][t] == at_home[d+1][t]).OnlyEnforceIf(breaks[-1])
-            # model.Add(at_home[d][t] != at_home[d+1][t]).OnlyEnforceIf(breaks[-1].Not())
-            #
-            # except they are a little more efficient, I believe.  Wrote it up in a blog post
+    breaks = add_breaks_constraint(teams,at_home,num_matchdays,model)
 
 
+    # let the solver minimize the number of breaks required to make
+    # the schedule work
 
-    # constrain breaks
-    model.Add(sum(breaks) >= num_matchdays)
     model.Minimize(sum(breaks))
     # run the solver
     solver = cp_model.CpSolver()
