@@ -78,9 +78,9 @@ def test_various_options():
                             ,'-t','24'
                             ,'-d','12'
                             ,'-p','4'
-                            ,'--cpu','2'
+                            ,'--cpu','3'
                             ,'--debug'
-                            ,'--timelimit','30'
+                            ,'--timelimit','60'
                             ,'--csv',output_file]
     try:
         proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
@@ -89,7 +89,7 @@ def test_various_options():
         print('out (line 89) is ',out)
         assert re.search('FEASIBLE', out, re.MULTILINE)
         assert re.search(r"A better solution than \d+ might be found by adding more time using the --timelimit command line option", out, re.MULTILINE)
-        assert re.search('num_search_workers: 2',err,re.MULTILINE)
+        assert re.search('num_search_workers: 3',err,re.MULTILINE)
     except:
         assert False
 
