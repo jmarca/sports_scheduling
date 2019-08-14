@@ -1,5 +1,9 @@
 # Sports Scheduling using OR Tools
 
+[![Build Status](https://travis-ci.org/jmarca/sports_scheduling.svg?branch=master)](https://travis-ci.org/jmarca/sports_scheduling)
+[![Maintainability](https://api.codeclimate.com/v1/badges/d8a7d84efe5ec1bbce06/maintainability)](https://codeclimate.com/github/jmarca/sports_scheduling/maintainability)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/d8a7d84efe5ec1bbce06/test_coverage)](https://codeclimate.com/github/jmarca/sports_scheduling/test_coverage)
+
 The genesis of this package was from a question on the OR Tools
 forum.  In order to answer the question, I translated the C++ example
 [sports_scheduling.cc](https://github.com/google/or-tools/blob/stable/examples/cpp/sports_scheduling_sat.cc)

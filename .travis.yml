@@ -11,7 +11,7 @@ before_install:
   - sudo apt-get install libcurl4-gnutls-dev libgnutls-dev
 
 install:
-  - pip install -r requirements.txt
+  - pip install -r Docker/requirements.txt
 
 before_script:
   - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
