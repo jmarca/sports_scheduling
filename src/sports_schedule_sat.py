@@ -435,7 +435,6 @@ def assign_matches(num_teams,
     # necessary I think
     status = solver.Solve(model)
     print('Solve status: %s' % solver.StatusName(status))
-    print('Optimal objective value: %i' % solver.ObjectiveValue())
     print('Statistics')
     print('  - conflicts : %i' % solver.NumConflicts())
     print('  - branches  : %i' % solver.NumBranches())
@@ -448,6 +447,9 @@ def assign_matches(num_teams,
         print('Not enough time allowed to compute a solution')
         print('Add more time using the --timelimit command line option')
         return status
+
+    print('Optimal objective value: %i' % solver.ObjectiveValue())
+
 
     screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays)
 
