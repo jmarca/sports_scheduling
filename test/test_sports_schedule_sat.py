@@ -75,12 +75,12 @@ def test_various_options():
 
     # test not unknown, but still not optimal
     process_command_line = ['python','src/sports_schedule_sat.py'
-                            ,'-t','24'
-                            ,'-d','12'
-                            ,'-p','4'
+                            ,'-t','20'
+                            ,'-d','10'
+                            ,'-p','5'
                             ,'--cpu','3'
                             ,'--debug'
-                            ,'--timelimit','60'
+                            ,'--timelimit','20'
                             ,'--csv',output_file]
     try:
         proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
