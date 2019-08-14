@@ -80,7 +80,7 @@ def test_various_options():
                             ,'-p','4'
                             ,'--cpu','2'
                             ,'--debug'
-                            ,'--timelimit','10'
+                            ,'--timelimit','30'
                             ,'--csv',output_file]
     try:
         proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
