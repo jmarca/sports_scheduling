@@ -1,0 +1,25 @@
+dist: xenial   # required for Python >= 3.7
+language: python
+python:
+  - "3.7"
+env:
+  global:
+    - CC_TEST_REPORTER_ID=
+
+# command to install dependencies
+before_install:
+  - sudo apt-get install libcurl4-gnutls-dev libgnutls-dev
+
+install:
+  - pip install -r requirements.txt
+
+before_script:
+  - curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
+  - chmod +x ./cc-test-reporter
+  - ./cc-test-reporter before-build
+
+# command to run tests
+script: pytest --cov=src --cov-report=xml
+
+after_script:
+  - pytest --cov=src --cov-report=xml --cov-report annotate && ./cc-test-reporter after-build -t coverage.py --exit-code $TRAVIS_TEST_RESULT
