@@ -16,10 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
-Essentially a translation of sports_scheduling_sat.cc from the C++ example
+"""Essentially a translation of sports_scheduling_sat.cc from the C++ example
 
 Added CSV output option, and pool vs pool type constraints
+
+As a design principle, I'm deliberately sticking with functional
+programming, not OO.  So no side effects, and map/reduce, etc
 
 """
 import argparse
@@ -28,6 +30,8 @@ import re
 import csv
 
 from ortools.sat.python import cp_model
+
+
 
 def csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv_basename):
     matchdays = range(num_matchdays)
@@ -328,15 +332,11 @@ def add_breaks_constraint(teams,at_home,num_matchdays,model):
     return breaks
 
 
-def assign_matches(num_teams,
-                   num_matchdays,
-                   num_matches_per_day,
-                   num_pools,
-                   max_home_stand,
-                   time_limit=None,
-                   num_cpus=None,
-                   csv=None,
-                   debug=None
+def model_matches(num_teams,
+                  num_matchdays,
+                  num_matches_per_day,
+                  num_pools,
+                  max_home_stand
 ):
 
     model = cp_model.CpModel()
@@ -392,13 +392,8 @@ def assign_matches(num_teams,
             # pools.
             pools.append(list(range(int(g*pool_size),num_teams)))
 
-    print('pool balancing details:',
-          '\nnumber teams', num_teams,
-          '\nunique games', unique_games,
-          '\ntotal games possible', total_games,
-          '\nnumber pools',                 num_pools,
-          '\nnumber matchdays',             num_matchdays,
-          )
+    fixtures = []
+    at_home = []
 
     for d in matchdays:
         fixtures.append([])
@@ -451,6 +446,14 @@ def assign_matches(num_teams,
     # the schedule work
 
     model.Minimize(sum(breaks))
+
+    return (pools,fixtures,model)
+
+
+def solve_model(model,
+                time_limit=None,
+                num_cpus=None,
+                debug=None):
     # run the solver
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit
@@ -466,6 +469,9 @@ def assign_matches(num_teams,
     print('  - conflicts : %i' % solver.NumConflicts())
     print('  - branches  : %i' % solver.NumBranches())
     print('  - wall time : %f s' % solver.WallTime())
+    return (solver,status)
+
+def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_limit=None,csv=None):
 
     if status == cp_model.INFEASIBLE:
         return status
@@ -488,10 +494,6 @@ def assign_matches(num_teams,
     if csv:
         csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv)
 
-    # # print break results, to get a clue what they are doing
-    # print('Breaks')
-    # for b in breaks:
-    #     print('  %s is %i' % (b.Name(), solver.Value(b)))
 
 def main():
     """Entry point of the program."""
@@ -550,15 +552,25 @@ def main():
 
 
     # assign_matches()
-    assign_matches(args.num_teams,
+    (pools,fixtures,model) = model_matches(args.num_teams,
                    args.num_matchdays,
                    num_matches_per_day,
                    args.num_pools,
-                   args.max_home_stand,
+                   args.max_home_stand)
+
+    (solver,status) = solve_model(model,
+                                  args.time_limit,
+                                  cpu,
+                                  args.debug)
+    report_results(solver,
+                   status,
+                   fixtures,
+                   pools,
+                   args.num_teams,
+                   args.num_matchdays,
                    args.time_limit,
-                   cpu,
-                   args.csv,
-                   args.debug)
+                   args.csv)
+
 
 if __name__ == '__main__':
     main()
