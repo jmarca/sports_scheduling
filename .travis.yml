@@ -4,7 +4,7 @@ python:
   - "3.7"
 env:
   global:
-    - CC_TEST_REPORTER_ID=
+    - CC_TEST_REPORTER_ID=db79ca1d4544a1688e54d08ae57fc9b32307435f04fde1ee74f40fbb1967f495
 
 # command to install dependencies
 before_install:
