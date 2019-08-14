@@ -5,3 +5,4 @@ test.png
 .cache
 .*history
 .coverage
+*py,cover
