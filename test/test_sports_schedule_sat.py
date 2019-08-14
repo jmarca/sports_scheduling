@@ -55,8 +55,8 @@ def test_various_options():
 
     # test timelimit option, search option, debug option
     process_command_line = ['python','src/sports_schedule_sat.py'
-                            ,'-t','32'
-                            ,'-d','30'
+                            ,'-t','24'
+                            ,'-d','23'
                             ,'-p','8'
                             ,'--debug'
                             ,'--cpu','4'
