@@ -19,7 +19,7 @@ before_script:
   - ./cc-test-reporter before-build
 
 # command to run tests
-script: pytest --cov=src --cov-report=xml
+script: pytest --cov=src --cov-report=xml --cov-report annotate
 
 after_script:
-  - pytest --cov=src --cov-report=xml --cov-report annotate && ./cc-test-reporter after-build -t coverage.py --exit-code $TRAVIS_TEST_RESULT
+  - ./cc-test-reporter after-build -t coverage.py --exit-code $TRAVIS_TEST_RESULT
