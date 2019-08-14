@@ -21,7 +21,7 @@ Docker directory and execute the build command:
 
 ```
 cd Docker
-docker build -t jmarca/sports_scheduling
+docker build -t jmarca/ortools_python
 ```
 
 This will build an image based on the official Python Docker image
@@ -39,7 +39,7 @@ docker run -it \
            --name sports_scheduling \
            -v ${PWD}:/work \
            -w /work \
-           jmarca/sports_scheduling bash
+           jmarca/ortools_python bash
 ```
 
 This will create a container and link the current working directory
@@ -59,7 +59,7 @@ docker run -it \
            --name sports_scheduling \
            -v ${PWD}:/work \
            -w /work \
-           jmarca/sports_scheduling python src/runme.py --various --commandline --options
+           jmarca/ortools_python python src/runme.py --various --commandline --options
 ```
 
 # Non-Docker setup
