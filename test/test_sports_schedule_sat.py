@@ -7,80 +7,11 @@ import sys
 from contextlib import contextmanager
 import filecmp
 
-@contextmanager
-def redirected(out=sys.stdout, err=sys.stderr):
-    saved = sys.stdout, sys.stderr
-    sys.stdout, sys.stderr = out, err
-    try:
-        yield
-    finally:
-        sys.stdout, sys.stderr = saved
 
-
-def test_command_line_options():
-
-    process_command_line = ['python','src/sports_schedule_sat.py']
-    try:
-        proc = subprocess.run(process_command_line)
-        proc.check_returncode()
-        print('failed to crash')
-        assert False
-    except:
-        pass
-
-
-    process_command_line = ['python','src/sports_schedule_sat.py'
-                            ,'-t','2'
-    ]
-    try:
-        proc = subprocess.run(process_command_line)
-        proc.check_returncode()
-        print('failed to crash')
-        assert False
-    except:
-        pass
-
-    process_command_line = ['python','src/sports_schedule_sat.py'
-                            ,'-d','1']
-    try:
-        proc = subprocess.run(process_command_line)
-        proc.check_returncode()
-        print('failed to crash')
-        assert False
-    except:
-        pass
-
-    output_file = 'test_output.csv'
-    process_command_line = ['python','src/sports_schedule_sat.py'
-                            ,'-t','2'
-                            ,'-d','2'
-                            ,'--csv',output_file]
-    try:
-        proc = subprocess.run(process_command_line)
-        proc.check_returncode()
-        pass
-    except:
-        print('should not crash when called with -t and -d')
-        assert False
-    # clean up the temp file
-    os.unlink(output_file)
-
-
-    try:
-        proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
-        out = proc.stdout
-        err = proc.stderr
-        print('out is ',out)
-        assert re.search('OPTIMAL', out, re.MULTILINE)
-        expected_file = 'test/data/output_t2_d2.csv'
-        assert filecmp.cmp(output_file,expected_file) != None
-    except:
-        print('should not crash when called with -t and -d')
-        assert False
-    # clean up the temp file
-    os.unlink(output_file)
+def test_various_options():
 
     # now for various combinations of inputs
+    output_file = 'test_output.csv'
 
     # 8 teams, 4 days, 4 pools
     process_command_line = ['python','src/sports_schedule_sat.py'
@@ -147,7 +78,7 @@ def test_command_line_options():
                             ,'-t','32'
                             ,'-d','10'
                             ,'-p','4'
-                            ,'--cpu','6'
+                            ,'--cpu','2'
                             ,'--debug'
                             ,'--timelimit','10'
                             ,'--csv',output_file]
@@ -158,7 +89,7 @@ def test_command_line_options():
         print('out is ',out)
         assert re.search('FEASIBLE', out, re.MULTILINE)
         assert re.search(r"A better solution than \d+ might be found by adding more time using the --timelimit command line option", out, re.MULTILINE)
-        assert re.search('num_search_workers: 6',err,re.MULTILINE)
+        assert re.search('num_search_workers: 2',err,re.MULTILINE)
     except:
         assert False
 
@@ -175,7 +106,7 @@ def test_command_line_options():
                             ,'-t','8'
                             ,'-d','7'
                             ,'-p','2'
-                            ,'--cpu','6'
+                            ,'--cpu','2'
                             ,'--debug'
                             ,'--timelimit','10'
                             ,'--csv',output_file]
@@ -183,10 +114,9 @@ def test_command_line_options():
         proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
         out = proc.stdout
         err = proc.stderr
-        print('out is ',out)
+        print('out 186 is ',out)
         assert re.search('FEASIBLE', out, re.MULTILINE)
-        assert re.search(r"A better solution than \d+ might be found by adding more time using the --timelimit command line option", out, re.MULTILINE)
-        assert re.search('num_search_workers: 6',err,re.MULTILINE)
+        assert re.search('num_search_workers: 2',err,re.MULTILINE)
     except:
         assert False
 
@@ -201,7 +131,7 @@ def test_command_line_options():
                             ,'-t','8'
                             ,'-d','14'
                             ,'-p','2'
-                            ,'--cpu','6'
+                            ,'--cpu','2'
                             ,'--debug'
                             ,'--timelimit','10'
                             ,'--csv',output_file]
@@ -209,9 +139,8 @@ def test_command_line_options():
         proc = subprocess.run(process_command_line, encoding='utf8', capture_output=True)
         out = proc.stdout
         err = proc.stderr
-        print('out is ',out)
         assert re.search('OPTIMAL', out, re.MULTILINE)
-        assert re.search('num_search_workers: 6',err,re.MULTILINE)
+        assert re.search('num_search_workers: 2',err,re.MULTILINE)
     except:
         assert False
 
