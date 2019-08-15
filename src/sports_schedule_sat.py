@@ -150,37 +150,46 @@ def collect_pool_play_fixtures(teams,pools,matchdays,fixtures):
     pool_balance=[]
     num_pools = len(pools)
     # prep the arrays
-    for t in teams:
-        pool_play.append([])
-        for pool in pools:
-            pool_play[t].append([])
+    # for t in teams:
+    #     pool_play.append([])
+    #     for pool in pools:
+    #         pool_play[t].append([])
 
-    for ppi in pools:
-        ppi_balance = []
-        for ppj in pools:
-            ppi_balance.append([])
-        pool_balance.append(ppi_balance)
+    # for ppi in pools:
+    #     ppi_balance = []
+    #     for ppj in pools:
+    #         ppi_balance.append([])
+    #     pool_balance.append(ppi_balance)
 
 
     for ppi in range(num_pools):
         for t in pools[ppi]:
+            pool_play.append([])
             # other team pool is inner loop
             for ppj in range(num_pools):
                 # over all the days, have to play each pool at least once
-                for d in matchdays:
-                    for opponent in pools[ppj]:
-                        if t == opponent:
-                            # cannot play self
-                            continue
-                        # save case of t is home, playing vs pool j
-                        pool_play[t][ppj].append(fixtures[d][t][opponent])
-                        # save case of t is away, playing vs pool j
-                        pool_play[t][ppj].append(fixtures[d][opponent][t])
-                        # save pool home vs pool away case
-                        pool_balance[ppi][ppj].append(fixtures[d][t][opponent])
+                pool_play[t].append(fixture_slice(fixtures,matchdays,[t],pools[ppj]) + fixture_slice(fixtures,matchdays,pools[ppj],[t]))
+
+    for ppi in range(num_pools):
+        pool_balance.append([])
+        for ppj in range(num_pools):
+            pool_balance[ppi].append(fixture_slice(fixtures,matchdays,pools[ppi],pools[ppj]))
 
 
     return (pool_play,pool_balance)
+
+def fixture_slice(fixture,days,homes,aways):
+    return [ fixture[day][home][a]  for day in days for home in homes for a in aways ]
+
+def fixture_aways(fixture,day,home,aways):
+    return [fixture[day][home][a] for a in aways]
+
+def fixture_homes(fixture,day,homes,away):
+    return [fixture[day][h][away] for h in homes]
+
+def fixture_days(fixture,days,home,away):
+    return [fixture[d][home][away] for d in days]
+
 
 def add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,unique_games,total_games):
     # pulling this out of the above loop for safety
