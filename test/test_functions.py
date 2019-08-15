@@ -52,17 +52,6 @@ def test_fixture_functions():
         for t in range(4):
             assert at_home[i][t].Name() == 'at_home: day %i, home %i' % (i,t)
 
-    fa = sss.fixture_aways(fixtures,2,1,[0,1,2])
-    assert len(fa) == 3
-    for t in [0,1,2]:
-        assert fa[t].Name() == 'fixture: day 2, home 1, away %i'%t
-
-    fh = sss.fixture_homes(fixtures,2,[0,1,2],1)
-    assert len(fh) == 3
-    for t in [0,1,2]:
-        assert fh[t].Name() == 'fixture: day 2, home %i, away 1'%t
-
-
     fdha = sss.fixture_slice(fixtures,[0,1],[1,2],[0,1,2])
     assert len(fdha) == 12
     idx = 0
