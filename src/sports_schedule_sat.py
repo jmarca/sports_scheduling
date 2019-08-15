@@ -18,10 +18,15 @@
 
 """Essentially a translation of sports_scheduling_sat.cc from the C++ example
 
-Added CSV output option, and pool vs pool type constraints
+I added CSV output option, and pool vs pool type constraints.
 
-As a design principle, I'm deliberately sticking with functional
-programming, not OO.  So no side effects, and map/reduce, etc
+Code Climate gave my original code an F for maintainability, so I
+refactored things heavily.  As a design principle, I'm deliberately
+sticking with functional programming, not OO.  Aiming for no side
+effects in my functions, and map/reduce, etc.  Not strictly possible
+though, because mode.Add(<some constraint>) is by definition a side
+effect.  Anyway, at this point the code is getting a grade of C from
+Code Climate, so that's good enough.
 
 """
 import argparse
@@ -55,24 +60,6 @@ def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
         if solver.Value(fixtures[d][home][away])
     ]
     return match_details
-    # old loop
-    # for d in matchdays:
-    #     game = 0
-    #     for homepool in range(len(pools)):
-    #         for home in pools[homepool]:
-    #             for awaypool in range(len(pools)):
-    #                 for away in pools[awaypool]:
-    #                     match_on = solver.Value(fixtures[d][home][away])
-    #                     if match_on:
-    #                         game += 1
-    #                         # each row: day,game,home,away,homepool,awaypool
-    #                         row = {'day':d+1,
-    #                                'game':game,
-    #                                'home':home+1,
-    #                                'away':away+1,
-    #                                'home pool':homepool+1,
-    #                                'away pool':awaypool+1}
-    #                         vcsv.append(row)
 
 def check_file_collision(csv_basename):
     # check for any existing file
@@ -217,37 +204,7 @@ def add_pool_play_constraints(pools,pool_play,model,minimum_games_function):
                             for t in range(len(pool_play))
                             for ppi in range(len(pools))]
     ))
-    # print(result)
-    # # assert 0
-    # # um.  yeah.  that's not exactly obvious.  Then again, neither is the following loop
 
-    # for t in range(len(pool_play)):
-    #     for ppi in range(len(pools)):
-    #         # over all the days, have to play each pool at least once
-    #         # model.AddBoolOr(pool_play[t][ppj])
-    #         # in order to require more than one, use Add(sum(...))
-
-    #         # special case of playing versus own pool
-    #         # because can't play against self
-    #         my_size = len(pools[ppi])
-    #         # this team vs all other teams, figure max games vs this pool
-    #         pool_matchup_count = int(my_size)
-    #         if t in pools[ppi]:
-    #             # "other pool" is actually my pool.  can't play self
-    #             pool_matchup_count = int((my_size-1))
-
-    #         local_count = matchups*pool_matchup_count
-    #         if not matchups_exact:
-    #             # in this case, last round of matchups is not complete.  must play less
-    #             games_remaining = total_games - ((matchups-1)*unique_games)
-    #             # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
-    #             # print(local_count,'becomes...')
-    #             local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
-    #             # print(local_count)
-    #             # assert 0
-    #         print(t,ppi,local_count)
-    #         #model.Add(sum(pool_play[t][ppi]) >= local_count)
-    # assert 0
 def add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function):
 
     # games per round robin
@@ -273,33 +230,6 @@ def add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function
                             for ppi in range(len(pools))
                             for ppj in range(len(pools))]
     ))
-    #print(result)
-    #assert 0
-    # num_pools = len(pools)
-    # for ppi in range(num_pools):
-    #     my_size = len(pools[ppi])
-    #     for ppj in range(num_pools):
-    #         other_size = len(pools[ppj])
-    #         pool_matchup_count = int(my_size*other_size/2)
-    #         if ppi==ppj:
-    #             pool_matchup_count = int(my_size*(my_size-1)/2)
-    #         total_count = int(matchups*pool_matchup_count)
-    #         if not matchups_exact:
-    #             games_remaining = total_games - ((matchups-1)*unique_games)
-    #             # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(pool_matchup_count/unique_games))
-    #             # print(total_count,'becomes...')
-    #             total_count = int((matchups-1)*pool_matchup_count + (games_remaining*pool_matchup_count//unique_games))
-    #             # print(total_count)
-    #         print(ppi,ppj,total_count)
-    #         if ppi == ppj:
-    #             model.Add(sum(pool_balance[ppi][ppj]) >= total_count)
-    #             model.Add(sum(pool_balance[ppi][ppj]) <= total_count+1)
-    #         else:
-    #             # hard equality generally works okay here
-    #             # now that I'm figuring the count properly
-    #             model.Add(sum(pool_balance[ppi][ppj]) == total_count)
-    #             #  model.Add(sum(pool_balance[ppi][ppj]) <= local_count+1)
-    # assert 0
 
 def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
     # loop to list possible opponents for each team
@@ -316,31 +246,6 @@ def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
       for d in matchdays
       for t in teams ]
 
-    # for d in matchdays:
-    #     for t in teams:
-    #         possible_opponents=fixture_slice(fixtures,[d],[t],teams) + fixture_slice(fixtures,[d],teams,[t])
-    #         model.Add(sum(possible_opponents) == 1) # can only play one game per day
-
-# def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
-#     days_to_play = int(unique_games // matches_per_day)
-#     for t in teams:
-#         for opponent in teams:
-#             if t == opponent:
-#                 continue
-#             for m in range(matchups):
-#                 # if m = matchups - 1, then last time through
-#                 days = int(days_to_play)
-#                 if m == matchups - 1:
-#                     days = int(min(days_to_play,num_matchdays - m*days_to_play))
-#                 # print('days',days)
-#                 mdays = [int(d+m*days_to_play) for d in range(days)]
-#                 pairings=fixture_slice(fixtures,mdays,[t],[opponent]) + fixture_slice(fixtures,mdays,[opponent],[t])
-#                 if m == matchups-1 and not matchups_exact:
-#                     # print('last matchup',m,'relaxed pairings constraint')
-#                     model.Add(sum(pairings) <= 1)
-#                 else:
-#                     # print('matchup',m,'hard pairings constraint')
-#                     model.Add(sum(pairings) == 1)
 def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
     days_to_play = int(unique_games // matches_per_day)
     fn = partial(fixture_slice,fixtures)
@@ -437,7 +342,7 @@ def add_breaks_constraint(teams,at_home,num_matchdays,model):
             # except they are a little more efficient, I believe.  Wrote it up in a blog post
 
     # literature aside, I'm finding in practice that is num_matchdays
-    # is odd, this constraint is really hard to meet.  So
+    # is odd, this constraint is really hard (read: impossible) to meet.  So
     if num_matchdays % 2:
         model.Add(sum(breaks) >= num_matchdays+1)
     else:
