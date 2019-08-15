@@ -25,7 +25,7 @@ Docker directory and execute the build command:
 
 ```
 cd Docker
-docker build -t jmarca/ortools_python
+docker build -t jmarca/ortools_python .
 ```
 
 This will build an image based on the official Python Docker image
