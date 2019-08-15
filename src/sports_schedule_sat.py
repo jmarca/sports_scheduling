@@ -33,30 +33,47 @@ from functools import partial
 from ortools.sat.python import cp_model
 
 
-
-def csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv_basename):
+def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
     matchdays = range(num_matchdays)
-    teams = range(num_teams)
+    home_details = [(homepool+1,home)
+                    for homepool in range(len(pools))
+                    for home in pools[homepool]]
+    # away version of list is the same as home
+    # away_details = home_details
+    match_details = [
+        {'day':d+1,
+         # cannot number games inside this loop
+         # 'game':game,
+         'home':home+1,
+         'away':away+1,
+         'home pool':homepool,
+         'away pool':awaypool}
+        for d in matchdays
+        for (homepool,home) in home_details
+        for (awaypool,away) in home_details
+        if solver.Value(fixtures[d][home][away])
+    ]
+    return match_details
+    # old loop
+    # for d in matchdays:
+    #     game = 0
+    #     for homepool in range(len(pools)):
+    #         for home in pools[homepool]:
+    #             for awaypool in range(len(pools)):
+    #                 for away in pools[awaypool]:
+    #                     match_on = solver.Value(fixtures[d][home][away])
+    #                     if match_on:
+    #                         game += 1
+    #                         # each row: day,game,home,away,homepool,awaypool
+    #                         row = {'day':d+1,
+    #                                'game':game,
+    #                                'home':home+1,
+    #                                'away':away+1,
+    #                                'home pool':homepool+1,
+    #                                'away pool':awaypool+1}
+    #                         vcsv.append(row)
 
-    vcsv = []
-    for d in matchdays:
-        game = 0
-        for homepool in range(len(pools)):
-            for home in pools[homepool]:
-                for awaypool in range(len(pools)):
-                    for away in pools[awaypool]:
-                        match_on = solver.Value(fixtures[d][home][away])
-                        if match_on:
-                            game += 1
-                            # each row: day,game,home,away,homepool,awaypool
-                            row = {'day':d+1,
-                                   'game':game,
-                                   'home':home+1,
-                                   'away':away+1,
-                                   'home pool':homepool+1,
-                                   'away pool':awaypool+1}
-                            vcsv.append(row)
-
+def check_file_collision(csv_basename):
     # check for any existing file
     idx = 1
     checkname = csv_basename
@@ -71,14 +88,19 @@ def csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv_basename)
         idx += 1
         # or just get rid of it, but that is often undesireable
         # os.unlink(csv_basename)
+    return checkname
+
+def csv_dump_results(solver,fixtures,pools,num_matchdays,csv_basename):
 
 
+    scheduled_games = get_scheduled_fixtures(solver,fixtures,pools,num_matchdays)
+    checkname = check_file_collision(csv_basename)
     with open(checkname, 'w', newline='') as csvfile:
-        fieldnames = ['day','game','home','away','home pool','away pool']
+        fieldnames = ['day','home','away','home pool','away pool']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         writer.writeheader()
-        for row in vcsv:
+        for row in scheduled_games:
             writer.writerow(row)
 
 
@@ -532,7 +554,7 @@ def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_lim
 
 
     if csv:
-        csv_dump_results(solver,fixtures,pools,num_teams,num_matchdays,csv)
+        csv_dump_results(solver,fixtures,pools,num_matchdays,csv)
 
 
 def main():
