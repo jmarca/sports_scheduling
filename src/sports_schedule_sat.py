@@ -38,6 +38,27 @@ from functools import reduce
 
 from ortools.sat.python import cp_model
 
+class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
+  """Print intermediate solutions."""
+
+  def __init__(self, variables):
+    cp_model.CpSolverSolutionCallback.__init__(self)
+    self.__variables = variables
+    self.__solution_count = 0
+
+  def on_solution_callback(self):
+    self.__solution_count += 1
+    for vi in self.__variables:
+        for vij in vi:
+            for vijk in vij:
+                if self.Value(vijk): # fixture is true, print the details
+                    print('%s=%i' % (vijk, self.Value(vijk)), end='\n')
+    print()
+
+  def solution_count(self):
+    return self.__solution_count
+
+
 
 def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
     matchdays = range(num_matchdays)
@@ -321,7 +342,7 @@ def add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_sta
             # prevents a sequence of one more than max_home_stand to
             # take place.
 
-def add_breaks_constraint(teams,at_home,num_matchdays,model):
+def add_breaks_constraint(teams,at_home,num_matchdays,model,hard=False):
     breaks = []
     for t in teams:
         for d in range(num_matchdays-1):
@@ -343,10 +364,20 @@ def add_breaks_constraint(teams,at_home,num_matchdays,model):
 
     # literature aside, I'm finding in practice that is num_matchdays
     # is odd, this constraint is really hard (read: impossible) to meet.  So
-    if num_matchdays % 2:
-        model.Add(sum(breaks) >= num_matchdays+1)
+    if hard:
+        if num_matchdays % 2:
+            model.Add(sum(breaks) == num_matchdays+1)
+        else:
+            model.Add(sum(breaks) == num_matchdays)
     else:
-        model.Add(sum(breaks) >= num_matchdays)
+        if num_matchdays % 2:
+            model.Add(sum(breaks) >= num_matchdays+1)
+        else:
+            model.Add(sum(breaks) >= num_matchdays)
+        if num_matchdays % 2:
+            model.Add(sum(breaks) == num_matchdays+1)
+        else:
+            model.Add(sum(breaks) == num_matchdays)
     return breaks
 
 def initialize_pools(num_pools,num_teams):
@@ -471,7 +502,7 @@ def model_matches(num_teams,
 
     add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand)
 
-    breaks = add_breaks_constraint(teams,at_home,num_matchdays,model)
+    breaks = add_breaks_constraint(teams,at_home,num_matchdays,model,True)
 
     return (pools,fixtures,breaks,model)
 
@@ -496,6 +527,29 @@ def solve_model(model,
     print('  - branches  : %i' % solver.NumBranches())
     print('  - wall time : %f s' % solver.WallTime())
     return (solver,status)
+
+
+def solution_search_model(model,fixtures,
+                          time_limit=None,
+                          num_cpus=None,
+                          debug=None,
+                          csv=None):
+    # run the solver
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = time_limit
+    solver.parameters.log_search_progress = debug
+    # cannot search with multiple CPUs
+    # solver.parameters.num_search_workers = num_cpus
+    # Search and print out all solutions.
+    solution_printer = VarArraySolutionPrinter(fixtures)
+    status = solver.SearchForAllSolutions(model, solution_printer)
+    print('Solve status: %s' % solver.StatusName(status))
+    print('Statistics')
+    print('  - conflicts : %i' % solver.NumConflicts())
+    print('  - branches  : %i' % solver.NumBranches())
+    print('  - wall time : %f s' % solver.WallTime())
+    return (solver,status)
+
 
 def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_limit=None,csv=None):
 
@@ -591,22 +645,31 @@ def main():
     # the schedule work
     #
     # But eventually make this a command line thing.
-    model.Minimize(sum(breaks))
+
+    minimize = False
+    if minimize:
+        model.Minimize(sum(breaks))
 
 
-    (solver,status) = solve_model(model,
-                                  args.time_limit,
-                                  cpu,
-                                  args.debug)
+        (solver,status) = solve_model(model,
+                                      args.time_limit,
+                                      cpu,
+                                      args.debug)
+        report_results(solver,
+                       status,
+                       fixtures,
+                       pools,
+                       args.num_teams,
+                       args.num_matchdays,
+                       args.time_limit,
+                       args.csv)
+    else:
+        (solver,status) = solution_search_model(model,fixtures,
+                                                args.time_limit,
+                                                cpu,
+                                                args.debug,
+                                                args.csv)
 
-    report_results(solver,
-                   status,
-                   fixtures,
-                   pools,
-                   args.num_teams,
-                   args.num_matchdays,
-                   args.time_limit,
-                   args.csv)
 
 
 if __name__ == '__main__':
