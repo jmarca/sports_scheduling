@@ -29,6 +29,7 @@ import os
 import re
 import csv
 from functools import partial
+from functools import reduce
 
 from ortools.sat.python import cp_model
 
@@ -105,63 +106,78 @@ def csv_dump_results(solver,fixtures,pools,num_matchdays,csv_basename):
 
 
 def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
-    matchdays = range(num_matchdays)
-    teams = range(num_teams)
-    num_pools = len(pools)
 
+    scheduled_games = get_scheduled_fixtures(solver,fixtures,pools,num_matchdays)
+    total_games = len(scheduled_games)
+    for row in scheduled_games:
+        print('day %i home %i away %i' %(row['day'],row['home'],row['away']))
 
-    total_games = 0
-    for d in matchdays:
-        game = 0
-        for home in teams:
-            for away in teams:
-                match_on = solver.Value(fixtures[d][home][away])
-                if match_on:
-                    game += 1
-                    print('day %i game %i home %i away %i' %(d+1,game,home+1,away+1))
-        total_games += game
 
     # next evaluate team vs pool, pool vs pool
     #
     # The expected values for these sums vary depending on problem parameters
     #
-    pool_vs_pool = []  # list of lists. These should be generally equal if i != j
-    team_pool_play=[]  # list of lists. These should also be roughly equal
+    # pool_vs_pool = []  # list of lists. These should be generally equal if i != j
+    # team_vs_pool=[]  # list of lists. These should also be roughly equal
     # initialize both containers to zero values
-    for i in range(num_pools):
-        pool_vs_pool.append([0 for j in range(num_pools)])
-        for t in pools[i]:
-            team_pool_play.append([])
-            for j in range(num_pools):
-                for other in pools[j]:
-                    team_pool_play[t].append(0)
 
-    # this loop accumulates match counts for team vs pool and pool vs pool
-    for d in matchdays:
-        for i in range(num_pools):
-            for t in pools[i]:
-                for j in range(num_pools):
-                    for other in pools[j]:
-                        home_match = solver.Value(fixtures[d][t][other])
-                        away_match = solver.Value(fixtures[d][other][t])
-                        if home_match:
-                            # team t is home, playing vs pool j
-                            team_pool_play[t][j] += 1
-                            pool_vs_pool[i][j] += 1
-                        if away_match:
-                            # team t is away, but still playing vs pool j
-                            team_pool_play[t][j] += 1
+    pool_vs_pool = [
+        [0 for j in pools]
+        for i in pools
+    ]
+
+    team_vs_pool=[
+        [0 for j in pools]
+        for t in range(num_teams)
+    ]
+
+    # for i in range(num_pools):
+    #     pool_vs_pool.append([0 for j in range(num_pools)])
+    #     for t in pools[i]:
+    #         team_vs_pool.append([])
+    #         for j in range(num_pools):
+    #             for other in pools[j]:
+    #                 team_vs_pool[t].append(0)
+
+    # this loop accumulates match counts for pool vs pool
+    def accum_pool_pool(pool_vs_pool,row):
+        pool_vs_pool[row['home pool']-1][row['away pool']-1] += 1
+        return pool_vs_pool
+    pool_vs_pool = reduce( accum_pool_pool, scheduled_games, pool_vs_pool)
+
+    # this loop accumulates match counts for team vs pool
+    def accum_team_pool(team_vs_pool, row):
+        team_vs_pool[row['home']-1][row['away pool']-1] += 1
+        team_vs_pool[row['away']-1][row['home pool']-1] += 1
+        return team_vs_pool
+
+    team_vs_pool = reduce( accum_team_pool, scheduled_games, team_vs_pool)
+
+    # for d in matchdays:
+    #     for i in range(num_pools):
+    #         for t in pools[i]:
+    #             for j in range(num_pools):
+    #                 for other in pools[j]:
+    #                     home_match = solver.Value(fixtures[d][t][other])
+    #                     away_match = solver.Value(fixtures[d][other][t])
+    #                     if home_match:
+    #                         # team t is home, playing vs pool j
+    #                         team_vs_pool[t][j] += 1
+    #                         pool_vs_pool[i][j] += 1
+    #                     if away_match:
+    #                         # team t is away, but still playing vs pool j
+    #                         team_vs_pool[t][j] += 1
 
     # this loop prints each team vs pool match counts
-    for i in range(num_pools):
+    for i in range(len(pools)):
         for t in pools[i]:
-            for j in range(num_pools):
-                print('team %i (home or away) versus pool %i = %i' % (t+1,j,team_pool_play[t][j]))
+            for j in range(len(pools)):
+                print('team %i (home or away) versus pool %i = %i' % (t+1,j,team_vs_pool[t][j]))
 
     # this loop prints pool vs pool match counts
     all_combinations_sum = 0
-    for i in range(num_pools):
-        for j in range(num_pools):
+    for i in range(len(pools)):
+        for j in range(len(pools)):
             print('pool %i at home vs pool %i away, count = %i'%(i,j,pool_vs_pool[i][j]))
             all_combinations_sum += pool_vs_pool[i][j]
     assert all_combinations_sum == total_games
