@@ -462,7 +462,12 @@ def add_breaks_constraint(teams,at_home,num_matchdays,model):
             #
             # except they are a little more efficient, I believe.  Wrote it up in a blog post
 
-    model.Add(sum(breaks) >= num_matchdays)
+    # literature aside, I'm finding in practice that is num_matchdays
+    # is odd, this constraint is really hard to meet.  So
+    if num_matchdays % 2:
+        model.Add(sum(breaks) >= num_matchdays+1)
+    else:
+        model.Add(sum(breaks) >= num_matchdays)
     return breaks
 
 def initialize_pools(num_pools,num_teams):
@@ -511,12 +516,6 @@ def model_matches(num_teams,
 ):
 
     model = cp_model.CpModel()
-
-    print('num_teams',          num_teams,
-          'num_matchdays',      num_matchdays,
-          'num_matches_per_day',num_matches_per_day,
-          'num_pools',          num_pools,
-          'max_home_stand',     max_home_stand)
 
     matchdays = range(num_matchdays)
     matches = range(num_matches_per_day)
@@ -590,18 +589,11 @@ def model_matches(num_teams,
     # assert 0
     add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,num_matches_per_day,num_matchdays)
 
-
     add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand)
 
     breaks = add_breaks_constraint(teams,at_home,num_matchdays,model)
 
-
-    # let the solver minimize the number of breaks required to make
-    # the schedule work
-
-    model.Minimize(sum(breaks))
-
-    return (pools,fixtures,model)
+    return (pools,fixtures,breaks,model)
 
 
 def solve_model(model,
@@ -706,16 +698,27 @@ def main():
 
 
     # assign_matches()
-    (pools,fixtures,model) = model_matches(args.num_teams,
+    (pools,fixtures,breaks,model) = model_matches(args.num_teams,
                    args.num_matchdays,
                    num_matches_per_day,
                    args.num_pools,
                    args.max_home_stand)
 
+    # pulled this out of model_matches to make it easier to collect
+    # all possible matches
+    #
+    # let the solver minimize the number of breaks required to make
+    # the schedule work
+    #
+    # But eventually make this a command line thing.
+    model.Minimize(sum(breaks))
+
+
     (solver,status) = solve_model(model,
                                   args.time_limit,
                                   cpu,
                                   args.debug)
+
     report_results(solver,
                    status,
                    fixtures,
