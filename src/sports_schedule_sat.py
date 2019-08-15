@@ -28,6 +28,7 @@ import argparse
 import os
 import re
 import csv
+from functools import partial
 
 from ortools.sat.python import cp_model
 
@@ -330,6 +331,40 @@ def add_breaks_constraint(teams,at_home,num_matchdays,model):
 
     model.Add(sum(breaks) >= num_matchdays)
     return breaks
+
+def initialize_pools(num_pools,num_teams):
+    pool_size = int(num_teams//num_pools)
+    pools = [(list(range(int(g*pool_size),int((g+1)*pool_size)))) for g in range(num_pools-1)]
+    # Last pool might need to be bigger.  If this ever gets used
+    # in anger, the remainder should be spread over multiple
+    # pools.
+    pools.append(list(range(int((num_pools-1)*pool_size),num_teams)))
+    return pools
+
+def opponent_fixtures(model,num_teams,day,home_team):
+    name_prefix = 'fixture: day %i, home %i, ' % (day,home_team)
+    return [ model.NewBoolVar(name_prefix+'away %i'%away) for away in range(num_teams) ]
+
+def home_fixtures(model,num_teams,day):
+    opp_fix = partial(opponent_fixtures,model=model,num_teams=num_teams,day=day)
+    result =  list( map( lambda x : opp_fix(home_team=x), list(range(num_teams)) ) )
+    return result
+
+def daily_fixtures(model, num_teams, num_days):
+    home_fix = partial(home_fixtures,model=model,num_teams=num_teams)
+    result = list(map(lambda x: home_fix(day=x), list(range(num_days))))
+    return result
+
+
+def create_at_home_array(model,num_teams,day):
+    name_prefix = 'at_home: day %i, ' % day
+    return [ model.NewBoolVar(name_prefix+'home %i' % home) for home in range(num_teams) ]
+
+
+def daily_at_home(model, num_teams, num_days):
+    home_fix = partial(create_at_home_array,model=model,num_teams=num_teams)
+    result = list(map(lambda x: home_fix(day=x), list(range(num_days))))
+    return result
 
 
 def model_matches(num_teams,
