@@ -149,18 +149,6 @@ def collect_pool_play_fixtures(teams,pools,matchdays,fixtures):
     pool_play=[]
     pool_balance=[]
     num_pools = len(pools)
-    # prep the arrays
-    # for t in teams:
-    #     pool_play.append([])
-    #     for pool in pools:
-    #         pool_play[t].append([])
-
-    # for ppi in pools:
-    #     ppi_balance = []
-    #     for ppj in pools:
-    #         ppi_balance.append([])
-    #     pool_balance.append(ppi_balance)
-
 
     for ppi in range(num_pools):
         for t in pools[ppi]:
@@ -180,16 +168,6 @@ def collect_pool_play_fixtures(teams,pools,matchdays,fixtures):
 
 def fixture_slice(fixture,days,homes,aways):
     return [ fixture[day][home][a]  for day in days for home in homes for a in aways ]
-
-def fixture_aways(fixture,day,home,aways):
-    return [fixture[day][home][a] for a in aways]
-
-def fixture_homes(fixture,day,homes,away):
-    return [fixture[day][h][away] for h in homes]
-
-def fixture_days(fixture,days,home,away):
-    return [fixture[d][home][away] for d in days]
-
 
 def add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,unique_games,total_games):
     # pulling this out of the above loop for safety
@@ -216,7 +194,7 @@ def add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,uniq
                 # print(local_count,'becomes...')
                 local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
                 # print(local_count)
-                    # assert 0
+                # assert 0
             model.Add(sum(pool_play[t][ppi]) >= local_count)
 
 def add_pool_balance_constraints(pools,pool_balance,model,matchups,matchups_exact,unique_games,total_games):
@@ -250,14 +228,7 @@ def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
     # or later, once becomes matches_per_day?
     for d in matchdays:
         for t in teams:
-            possible_opponents=[]
-            for opponent in teams:
-                if t == opponent:
-                    continue
-                # t is home possibility
-                possible_opponents.append(fixtures[d][t][opponent])
-                # t is away possibility
-                possible_opponents.append(fixtures[d][opponent][t])
+            possible_opponents=fixture_slice(fixtures,[d],[t],teams) + fixture_slice(fixtures,[d],teams,[t])
             model.Add(sum(possible_opponents) == 1) # can only play one game per day
 
 def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
@@ -275,19 +246,13 @@ def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact
                 continue
             prior_home = []
             for m in range(matchups):
-                current_home = []
-                pairings = []
                 # if m = matchups - 1, then last time through
                 days = int(days_to_play)
                 if m == matchups - 1:
                     days = int(min(days_to_play,num_matchdays - m*days_to_play))
                 # print('days',days)
-                for d in range(days):
-                    theday = int(d + m*days_to_play)
-                    # print('theday',theday)
-                    pairings.append(fixtures[theday][t][opponent])
-                    pairings.append(fixtures[theday][opponent][t])
-                    # current_home.append(fixtures[theday][t][opponent])
+                mdays = [int(d+m*days_to_play) for d in range(days)]
+                pairings=fixture_slice(fixtures,mdays,[t],[opponent]) + fixture_slice(fixtures,mdays,[opponent],[t])
                 if m == matchups-1 and not matchups_exact:
                     # print('last matchup',m,'relaxed pairings constraint')
                     model.Add(sum(pairings) <= 1)
