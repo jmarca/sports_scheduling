@@ -350,10 +350,14 @@ def home_fixtures(model,num_teams,day):
     result =  list( map( lambda x : opp_fix(home_team=x), list(range(num_teams)) ) )
     return result
 
-def daily_fixtures(model, num_teams, num_days):
-    home_fix = partial(home_fixtures,model=model,num_teams=num_teams)
-    result = list(map(lambda x: home_fix(day=x), list(range(num_days))))
+def daily_thing(fn,model,num_teams,num_days):
+    fixed = partial(fn,model=model,num_teams=num_teams)
+    result = list(map(lambda x: fixed(day=x), list(range(num_days))))
     return result
+
+def daily_fixtures(model, num_teams, num_days):
+    return daily_thing(home_fixtures,
+                       model=model,num_teams=num_teams,num_days=num_days)
 
 
 def create_at_home_array(model,num_teams,day):
@@ -362,9 +366,8 @@ def create_at_home_array(model,num_teams,day):
 
 
 def daily_at_home(model, num_teams, num_days):
-    home_fix = partial(create_at_home_array,model=model,num_teams=num_teams)
-    result = list(map(lambda x: home_fix(day=x), list(range(num_days))))
-    return result
+    return daily_thing(create_at_home_array,
+                       model=model,num_teams=num_teams,num_days=num_days)
 
 
 def model_matches(num_teams,
