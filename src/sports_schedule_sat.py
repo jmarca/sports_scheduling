@@ -233,18 +233,10 @@ def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
 
 def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
     days_to_play = int(unique_games // matches_per_day)
-    # print('unique_games',unique_games,
-    #       '\nnum matches per day',matches_per_day,
-    #       '\ndays to play',days_to_play,
-    #       '\ntotal games possible',total_games)
     for t in teams:
-        # I think I can reduce constraints by using the next loop
-        # for opponent in range(t+1,num_teams):
-        # but for first pass, keep with the one from C++ code
         for opponent in teams:
             if t == opponent:
                 continue
-            prior_home = []
             for m in range(matchups):
                 # if m = matchups - 1, then last time through
                 days = int(days_to_play)
@@ -259,6 +251,7 @@ def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact
                 else:
                     # print('matchup',m,'hard pairings constraint')
                     model.Add(sum(pairings) == 1)
+
 def add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand):
     # forbid sequence of 3 homes or 3 aways in a row
     for t in teams:
