@@ -184,25 +184,19 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
 
 
 def collect_pool_play_fixtures(teams,pools,matchdays,fixtures):
-    pool_play=[]
-    pool_balance=[]
-    num_pools = len(pools)
+    pool_play=[[] for t in teams]
+    [ pool_play[t].append(fixture_slice(fixtures,matchdays,[t],pools[ppj]) + fixture_slice(fixtures,matchdays,pools[ppj],[t]))
+      for t in teams
+      for ppj in range(len(pools))
+    ]
+    return pool_play
 
-    for ppi in range(num_pools):
-        for t in pools[ppi]:
-            pool_play.append([])
-            # other team pool is inner loop
-            for ppj in range(num_pools):
-                # over all the days, have to play each pool at least once
-                pool_play[t].append(fixture_slice(fixtures,matchdays,[t],pools[ppj]) + fixture_slice(fixtures,matchdays,pools[ppj],[t]))
-
-    for ppi in range(num_pools):
-        pool_balance.append([])
-        for ppj in range(num_pools):
-            pool_balance[ppi].append(fixture_slice(fixtures,matchdays,pools[ppi],pools[ppj]))
-
-
-    return (pool_play,pool_balance)
+def collect_pool_balance_fixtures(pools,matchdays,fixtures):
+    pool_balance=[ [] for p in pools]
+    [ pool_balance[ppi].append(fixture_slice(fixtures,matchdays,pools[ppi],pools[ppj]))
+      for ppi in range(len(pools))
+      for ppj in range(len(pools)) ]
+    return pool_balance
 
 def fixture_slice(fixture,days,homes,aways):
     return [ fixture[day][home][a]  for day in days for home in homes for a in aways ]
@@ -570,7 +564,8 @@ def model_matches(num_teams,
       for j in teams
       if i != j]
 
-    (pool_play,pool_balance) = collect_pool_play_fixtures(teams,pools,matchdays,fixtures)
+    pool_play = collect_pool_play_fixtures(teams,pools,matchdays,fixtures)
+    pool_balance = collect_pool_balance_fixtures(pools,matchdays,fixtures)
 
     minimum_games_function =  partial(season_expected_games,
                                       matchups=matchups,
