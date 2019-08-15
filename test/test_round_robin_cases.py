@@ -27,7 +27,7 @@ def test_rr_cases():
         out = proc.stdout
         err = proc.stderr
         print('out 186 is ',out)
-        assert re.search('FEASIBLE', out, re.MULTILINE)
+        assert re.search('OPTIMAL', out, re.MULTILINE)
         assert re.search('num_search_workers: 2',err,re.MULTILINE)
     except:
         assert False
