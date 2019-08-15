@@ -229,69 +229,59 @@ def season_expected_games(games_per_rr,matchups_exact,matchups,total_games,uniqu
                     games_remaining*games_per_rr//unique_games )
 
 
-def add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,unique_games,total_games):
-
-    minimum_games = partial(season_expected_games,
-                            matchups=matchups,
-                            matchups_exact=matchups_exact,
-                            unique_games=unique_games,
-                            total_games=total_games)
+def add_pool_play_constraints(pools,pool_play,model,minimum_games_function):
 
     # games per round robin
 
     def constrain_games(pair):
         (t,ppi) = pair
         round_robin_games = expected_t_vs_pool_games(t,pools[ppi])
-        minimum_expected_games = minimum_games(games_per_rr=round_robin_games)
+        minimum_expected_games = minimum_games_function(games_per_rr=round_robin_games)
         model.Add(sum(pool_play[t][ppi]) >= minimum_expected_games)
         return (t,ppi,minimum_expected_games)
     result = list( map (constrain_games, [ (t,ppi)
                             for t in range(len(pool_play))
                             for ppi in range(len(pools))]
     ))
-    print(result)
+    # print(result)
+    # # assert 0
+    # # um.  yeah.  that's not exactly obvious.  Then again, neither is the following loop
+
+    # for t in range(len(pool_play)):
+    #     for ppi in range(len(pools)):
+    #         # over all the days, have to play each pool at least once
+    #         # model.AddBoolOr(pool_play[t][ppj])
+    #         # in order to require more than one, use Add(sum(...))
+
+    #         # special case of playing versus own pool
+    #         # because can't play against self
+    #         my_size = len(pools[ppi])
+    #         # this team vs all other teams, figure max games vs this pool
+    #         pool_matchup_count = int(my_size)
+    #         if t in pools[ppi]:
+    #             # "other pool" is actually my pool.  can't play self
+    #             pool_matchup_count = int((my_size-1))
+
+    #         local_count = matchups*pool_matchup_count
+    #         if not matchups_exact:
+    #             # in this case, last round of matchups is not complete.  must play less
+    #             games_remaining = total_games - ((matchups-1)*unique_games)
+    #             # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
+    #             # print(local_count,'becomes...')
+    #             local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
+    #             # print(local_count)
+    #             # assert 0
+    #         print(t,ppi,local_count)
+    #         #model.Add(sum(pool_play[t][ppi]) >= local_count)
     # assert 0
-    # um.  yeah.  that's not exactly obvious.  Then again, neither is the following loop
+def add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function):
 
-    for t in range(len(pool_play)):
-        for ppi in range(len(pools)):
-            # over all the days, have to play each pool at least once
-            # model.AddBoolOr(pool_play[t][ppj])
-            # in order to require more than one, use Add(sum(...))
-
-            # special case of playing versus own pool
-            # because can't play against self
-            my_size = len(pools[ppi])
-            # this team vs all other teams, figure max games vs this pool
-            pool_matchup_count = int(my_size)
-            if t in pools[ppi]:
-                # "other pool" is actually my pool.  can't play self
-                pool_matchup_count = int((my_size-1))
-
-            local_count = matchups*pool_matchup_count
-            if not matchups_exact:
-                # in this case, last round of matchups is not complete.  must play less
-                games_remaining = total_games - ((matchups-1)*unique_games)
-                # print(total_games,matchups,unique_games,games_remaining,pool_matchup_count,(games_remaining*pool_matchup_count//unique_games))
-                # print(local_count,'becomes...')
-                local_count = int((matchups-1)*pool_matchup_count + games_remaining*pool_matchup_count//unique_games)
-                # print(local_count)
-                # assert 0
-            print(t,ppi,local_count)
-            #model.Add(sum(pool_play[t][ppi]) >= local_count)
-    # assert 0
-def add_pool_balance_constraints(pools,pool_balance,model,matchups,matchups_exact,unique_games,total_games):
-    minimum_games = partial(season_expected_games,
-                            matchups=matchups,
-                            matchups_exact=matchups_exact,
-                            unique_games=unique_games,
-                            total_games=total_games)
     # games per round robin
 
     def constrain_games(pair):
         (ppi,ppj) = pair
         round_robin_games = expected_pool_vs_pool_games(pools[ppi],pools[ppj])
-        minimum_expected_games = minimum_games(games_per_rr=round_robin_games)
+        minimum_expected_games = minimum_games_function(games_per_rr=round_robin_games)
 
         # print(ppi,ppj,minimum_expected_games)
 
@@ -309,7 +299,7 @@ def add_pool_balance_constraints(pools,pool_balance,model,matchups,matchups_exac
                             for ppi in range(len(pools))
                             for ppj in range(len(pools))]
     ))
-    print(result)
+    #print(result)
     #assert 0
     # num_pools = len(pools)
     # for ppi in range(num_pools):
@@ -569,20 +559,29 @@ def model_matches(num_teams,
     # But at_home[d][t] == False implies away, when it might be a by
     # if the team t does not play that day
     #
-    for d in matchdays:
-        for i in teams:
-            for j in teams:
-                if i == j:
-                    model.Add(fixtures[d][i][j] == 0) # forbid playing self
-                else:
-                    model.AddImplication(fixtures[d][i][j], at_home[d][i])
-                    model.AddImplication(fixtures[d][i][j], at_home[d][j].Not())
+    [ model.Add(fixtures[d][i][i] == 0) # forbid playing self
+      for d in matchdays
+      for i in teams ]
+
+    # link at_home, fixtures
+    [(model.AddImplication(fixtures[d][i][j], at_home[d][i]),
+      model.AddImplication(fixtures[d][i][j], at_home[d][j].Not()))
+      for d in matchdays
+      for i in teams
+      for j in teams
+      if i != j]
 
     (pool_play,pool_balance) = collect_pool_play_fixtures(teams,pools,matchdays,fixtures)
 
-    add_pool_play_constraints(pools,pool_play,model,matchups,matchups_exact,unique_games,total_games)
+    minimum_games_function =  partial(season_expected_games,
+                                      matchups=matchups,
+                                      matchups_exact=matchups_exact,
+                                      unique_games=unique_games,
+                                      total_games=total_games)
 
-    add_pool_balance_constraints(pools,pool_balance,model,matchups,matchups_exact,unique_games,total_games)
+    add_pool_play_constraints(pools,pool_play,model,minimum_games_function)
+
+    add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function)
 
     add_one_game_per_day(matchdays,num_matches_per_day,teams,fixtures,model)
 
