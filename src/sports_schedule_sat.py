@@ -412,27 +412,14 @@ def model_matches(num_teams,
     at_home = []  # whether or not a team plays at home on matchday
     all_home_games = [] # across all match days, home games for team
 
-    pool_play = [] # play between pools, for team vs pool balancing
-    pool_balance = [] # also play between pools, for pool vs pool
     # now for pool to pool, balance play
     # expected number is...um
     # number of pools cross number of pools divided into number of days to play
-    pools = []
-    pool_size = int(num_teams//num_pools)
-    for g in range(num_pools):
-        if g < num_pools-1:
-            pools.append(list(range(int(g*pool_size),int((g+1)*pool_size))))
-        else:
-            # Last pool might need to be bigger.  If this ever gets used
-            # in anger, the remainder should be spread over multiple
-            # pools.
-            pools.append(list(range(int(g*pool_size),num_teams)))
+    pools = initialize_pools(num_pools,num_teams)
 
-    fixtures = []
     at_home = []
 
     for d in matchdays:
-        fixtures.append([])
         at_home.append([])
         for i in teams:
             fixtures[d].append([])
