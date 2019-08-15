@@ -407,41 +407,30 @@ def model_matches(num_teams,
 
     print('expected matchups per pair',matchups, 'exact?',matchups_exact)
 
-    fixtures = daily_fixtures(model,num_teams,num_days) # all possible games
-    at_home = at_home_state(model,fixtures,num_teams,num_days) # all possible games
+    fixtures = daily_fixtures(model,num_teams,num_matchdays) # all possible games
+    at_home = daily_at_home(model,num_teams,num_matchdays) # all possible games
 
     # now for pool to pool, balance play
     # expected number is...um
     # number of pools cross number of pools divided into number of days to play
     pools = initialize_pools(num_pools,num_teams)
 
-
-    for d in matchdays:
-        at_home.append([])
-        for i in teams:
-            fixtures[d].append([])
-            home_pool = num_pools
-            for j in teams:
-                fixtures[d][i].append(model.NewBoolVar('fixture: home team %i, opponent %i, matchday %i' % (i,j,d)))
-                if i == j:
-                    model.Add(fixtures[d][i][j] == 0) # forbid playing self
-            # is team i playing at home on day d?
-            at_home[d].append(model.NewBoolVar('team %i is home on matchday %i' % (i,d)))
-
-    # link at_home[day][team] in terms of fixtures
+    # loop to forbid playing self and to link at_home[day][team] in
+    # terms of fixtures
     #
     # Note this might have issues if byes are valid.  In that case, if
     # a team has a bye on a match day, it plays neither home nor away.
     # But at_home[d][t] == False implies away, when it might be a by
     # if the team t does not play that day
+    #
     for d in matchdays:
-        for t in teams:
-            for opponent in teams:
-                if t == opponent:
-                    continue
-                model.AddImplication(fixtures[d][t][opponent], at_home[d][t])
-                model.AddImplication(fixtures[d][t][opponent], at_home[d][opponent].Not())
-
+        for i in teams:
+            for j in teams:
+                if i == j:
+                    model.Add(fixtures[d][i][j] == 0) # forbid playing self
+                else:
+                    model.AddImplication(fixtures[d][i][j], at_home[d][i])
+                    model.AddImplication(fixtures[d][i][j], at_home[d][j].Not())
 
     (pool_play,pool_balance) = collect_pool_play_fixtures(teams,pools,matchdays,fixtures)
 
