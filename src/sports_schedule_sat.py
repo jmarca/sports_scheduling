@@ -226,31 +226,92 @@ def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
     # loop to list possible opponents for each team
     # each day, team t plays either home or away, but only once
     # or later, once becomes matches_per_day?
-    for d in matchdays:
-        for t in teams:
-            possible_opponents=fixture_slice(fixtures,[d],[t],teams) + fixture_slice(fixtures,[d],teams,[t])
-            model.Add(sum(possible_opponents) == 1) # can only play one game per day
+    # def model_add_sum_eq(model,l,v):
+    #     model.Add(sum(l) == v)
+    # fn = partial(model_add_sum_eq,model=model,v=1)
+    # [fn(l=fixture_slice(fixtures,[d],[t],teams) + fixture_slice(fixtures,[d],teams,[t]))
+    #  for d in matchdays for t in teams]
+    # nope.  that is not at all clear.
+    fn = partial(fixture_slice,fixtures)
+    [ model.Add(sum(fn([d],[t],teams) + fn([d],teams,[t])) == 1)
+      for d in matchdays
+      for t in teams ]
 
+    # for d in matchdays:
+    #     for t in teams:
+    #         possible_opponents=fixture_slice(fixtures,[d],[t],teams) + fixture_slice(fixtures,[d],teams,[t])
+    #         model.Add(sum(possible_opponents) == 1) # can only play one game per day
+
+# def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
+#     days_to_play = int(unique_games // matches_per_day)
+#     for t in teams:
+#         for opponent in teams:
+#             if t == opponent:
+#                 continue
+#             for m in range(matchups):
+#                 # if m = matchups - 1, then last time through
+#                 days = int(days_to_play)
+#                 if m == matchups - 1:
+#                     days = int(min(days_to_play,num_matchdays - m*days_to_play))
+#                 # print('days',days)
+#                 mdays = [int(d+m*days_to_play) for d in range(days)]
+#                 pairings=fixture_slice(fixtures,mdays,[t],[opponent]) + fixture_slice(fixtures,mdays,[opponent],[t])
+#                 if m == matchups-1 and not matchups_exact:
+#                     # print('last matchup',m,'relaxed pairings constraint')
+#                     model.Add(sum(pairings) <= 1)
+#                 else:
+#                     # print('matchup',m,'hard pairings constraint')
+#                     model.Add(sum(pairings) == 1)
 def add_one_matchup_per_round_robin(teams,fixtures,model,matchups,matchups_exact,unique_games,matches_per_day,num_matchdays):
     days_to_play = int(unique_games // matches_per_day)
-    for t in teams:
-        for opponent in teams:
-            if t == opponent:
-                continue
-            for m in range(matchups):
-                # if m = matchups - 1, then last time through
-                days = int(days_to_play)
-                if m == matchups - 1:
-                    days = int(min(days_to_play,num_matchdays - m*days_to_play))
-                # print('days',days)
-                mdays = [int(d+m*days_to_play) for d in range(days)]
-                pairings=fixture_slice(fixtures,mdays,[t],[opponent]) + fixture_slice(fixtures,mdays,[opponent],[t])
-                if m == matchups-1 and not matchups_exact:
-                    # print('last matchup',m,'relaxed pairings constraint')
-                    model.Add(sum(pairings) <= 1)
-                else:
-                    # print('matchup',m,'hard pairings constraint')
-                    model.Add(sum(pairings) == 1)
+    fn = partial(fixture_slice,fixtures)
+    # array of days in each round robin period
+    rr_days = [
+        [int(d+m*days_to_play) for d in range(days_to_play) ]
+        for m in range(matchups-1)
+    ]
+    # using list comprehension for the side effect of calling model.Add
+    # side effects are bad functional programming
+    # but that's how it goes.
+    #
+    # the combination of
+    #
+    # fn(mdays,[t],[o]) + fn(mdays,[o],[t])
+    #
+    # represents all possible pairings of fixtures over the round
+    # robin period between could probably between team t and team o.
+    # The summed constraint forces just one of these fixtures to be
+    # true, meaning each team plays just one team over a round robin
+    # period
+    #
+    # I could probably streamline the function call to
+    #
+    # fn(mdays,[t,o],[t,o]), as i vs i is constrained to be always false
+    #
+    [ model.Add(sum(fn(mdays,[t],[o]) + fn(mdays,[o],[t]))==1)
+      for t in teams
+      for o in teams if t != o
+      for mdays in rr_days
+    ]
+
+
+    # last (or possibly only if matchups==1) period might not have
+    # full number of days_to_play required for a round robin
+    last_days = [d for d in range( (matchups-1)*days_to_play,num_matchdays )]
+    if matchups_exact:
+        [ model.Add(sum(fn(last_days,[t],[o]) + fn(last_days,[o],[t]))==1)
+          for t in teams
+          for o in teams if t != o
+        ]
+    else:
+        # in this case, there are not enough days for every team to
+        # play every other team, so here I want to set a <=
+        # constraint.  If it is == and there aren't enough days, then
+        # the model is unsatisfiable.
+        [ model.Add(sum(fn(last_days,[t],[o]) + fn(last_days,[o],[t]))<=1)
+          for t in teams
+          for o in teams if t != o
+        ]
 
 def add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand):
     # forbid sequence of 3 homes or 3 aways in a row
