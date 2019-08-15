@@ -407,7 +407,8 @@ def model_matches(num_teams,
 
     print('expected matchups per pair',matchups, 'exact?',matchups_exact)
 
-    fixtures = [] # all possible games
+    fixtures = daily_fixtures(model,num_teams,num_days) # all possible games
+    at_home = at_home_state(model,fixtures,num_teams,num_days) # all possible games
     at_home = []  # whether or not a team plays at home on matchday
     all_home_games = [] # across all match days, home games for team
 
