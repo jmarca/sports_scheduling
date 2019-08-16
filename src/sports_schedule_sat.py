@@ -58,8 +58,8 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
             matches = self.__getter(solver=self,
                                     fixtures=self.__fixtures)
             for row in matches:
-                [print('%s=%i,' % (k,v),end=' ') for (k,v) in row.items()]
-                print()
+                line = ", ".join(['%s=%i' % (k,v) for (k,v) in row.items()])
+                print(line)
                 self.__writer.writerow(row)
 
             print()
