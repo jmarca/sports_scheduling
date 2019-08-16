@@ -38,6 +38,56 @@ from functools import reduce
 
 from ortools.sat.python import cp_model
 
+class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
+    """Print intermediate solutions."""
+
+    def __init__(self, variables, csvfile=None):
+        cp_model.CpSolverSolutionCallback.__init__(self)
+        self.__variables = variables
+        self.__solution_count = 0
+        self.__writer = self.get_csv_writer(csvfile)
+        self.__close_once = True
+
+        fixture_regex = r"day (\d+), home (\d+), away (\d+)"
+        self.__prog = re.compile(fixture_regex)
+
+    def on_solution_callback(self):
+        self.__solution_count += 1
+        if self.__solution_count < 101:
+            for vi in self.__variables:
+                for vij in vi:
+                    for vijk in vij:
+                        if self.Value(vijk): # fixture is true, print the details
+                            print('%s=%i' % (vijk, self.Value(vijk)), end='\n')
+                            result = self.__prog.search('%s'%vijk)
+                            #print(result.groups())
+                            (d,h,a) = result.groups()
+                            #print(d,h,a)
+                            #print(self.__writer)
+                            row = {"schedule":self.__solution_count,"day":d,"home":h,"away":a}
+                            #print(row)
+                            self.__writer.writerow(row)
+            print()
+            self.__writer.writerow({})
+
+        # elif self.__close_once:
+        #     self.close_csv()
+
+    def solution_count(self):
+        return self.__solution_count
+
+    def get_csv_writer(self,csvname):
+        self.__csvfile = open(csvname, 'w', newline='')
+        fieldnames = ['schedule','day','home','away']
+        writer = csv.DictWriter(self.__csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        return writer
+
+    # def close_csv(self):
+    #     # if self.__close_once:
+    #     #     os.close(self.__csvfile)
+    #     #self.__close_once = False
+    #  going to leak a file descriptor.  but I'm screwing up the close here
 
 def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
     matchdays = range(num_matchdays)
@@ -79,7 +129,6 @@ def check_file_collision(csv_basename):
     return checkname
 
 def csv_dump_results(solver,fixtures,pools,num_matchdays,csv_basename):
-
 
     scheduled_games = get_scheduled_fixtures(solver,fixtures,pools,num_matchdays)
     checkname = check_file_collision(csv_basename)
@@ -321,7 +370,7 @@ def add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_sta
             # prevents a sequence of one more than max_home_stand to
             # take place.
 
-def add_breaks_constraint(teams,at_home,num_matchdays,model):
+def add_breaks_constraint(teams,at_home,num_matchdays,model,listall=False):
     breaks = []
     for t in teams:
         for d in range(num_matchdays-1):
@@ -343,10 +392,19 @@ def add_breaks_constraint(teams,at_home,num_matchdays,model):
 
     # literature aside, I'm finding in practice that is num_matchdays
     # is odd, this constraint is really hard (read: impossible) to meet.  So
-    if num_matchdays % 2:
-        model.Add(sum(breaks) >= num_matchdays+1)
+    if listall:
+        print('listall case')
+        # in the list all case, want a hard constraint here
+        if num_matchdays % 2:
+            model.Add(sum(breaks) <= num_matchdays+1)
+        else:
+            model.Add(sum(breaks) <= num_matchdays)
     else:
-        model.Add(sum(breaks) >= num_matchdays)
+        print('not listall case')
+        if num_matchdays % 2:
+            model.Add(sum(breaks) >= num_matchdays+1)
+        else:
+            model.Add(sum(breaks) >= num_matchdays)
     return breaks
 
 def initialize_pools(num_pools,num_teams):
@@ -391,7 +449,8 @@ def model_matches(num_teams,
                   num_matchdays,
                   num_matches_per_day,
                   num_pools,
-                  max_home_stand
+                  max_home_stand,
+                  listall
 ):
 
     model = cp_model.CpModel()
@@ -471,7 +530,7 @@ def model_matches(num_teams,
 
     add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand)
 
-    breaks = add_breaks_constraint(teams,at_home,num_matchdays,model)
+    breaks = add_breaks_constraint(teams,at_home,num_matchdays,model,listall)
 
     return (pools,fixtures,breaks,model)
 
@@ -497,6 +556,30 @@ def solve_model(model,
     print('  - wall time : %f s' % solver.WallTime())
     return (solver,status)
 
+
+def solution_search_model(model,fixtures,
+                          time_limit=None,
+                          num_cpus=None,
+                          debug=None,
+                          csv=None):
+    # run the solver
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = time_limit
+    solver.parameters.log_search_progress = debug
+    # cannot search with multiple CPUs
+    # solver.parameters.num_search_workers = num_cpus
+    # Search and print out all solutions.
+    solution_printer = VarArraySolutionPrinter(fixtures,check_file_collision("list_"+csv))
+    status = solver.SearchForAllSolutions(model, solution_printer)
+    print('Solve status: %s' % solver.StatusName(status))
+    print('Statistics')
+    print('  - conflicts : %i' % solver.NumConflicts())
+    print('  - branches  : %i' % solver.NumBranches())
+    print('  - wall time : %f s' % solver.WallTime())
+    print('  - solutions found: %i' % solution_printer.solution_count())
+    return (solver,status)
+
+
 def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_limit=None,csv=None):
 
     if status == cp_model.INFEASIBLE:
@@ -520,6 +603,24 @@ def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_lim
     if csv:
         csv_dump_results(solver,fixtures,pools,num_matchdays,csv)
 
+def cpu_guess_and_gripe(cpu):
+    ncpu = len(os.sched_getaffinity(0))
+    if not cpu:
+        cpu = min(6,ncpu)
+    print('Setting number of search workers to %i' % cpu)
+
+    if cpu > ncpu:
+        print('You asked for %i workers to be used, but the os only reports %i CPUs available.  This might slow down processing' % (cpu,ncpu))
+
+    if cpu != 6:
+        # don't whinge at user if cpu is set to 6
+        if cpu < ncpu:
+            print('Using %i workers, but there are %i CPUs available.  You might get faster results by using the command line option --cpu %i, but be aware ORTools CP-SAT solver is tuned to 6 CPUs' % (cpu,ncpu,ncpu))
+
+        if cpu > 6:
+            print('Using %i workers.  Be aware ORTools CP-SAT solver is tuned to 6 CPUs' % cpu)
+
+    return cpu
 
 def main():
     """Entry point of the program."""
@@ -551,6 +652,9 @@ def main():
     parser.add_argument('--max_home_stand',type=int,dest='max_home_stand',default=2,
                         help="Maximum consecutive home or away games.  Default to 2, which means three home or away games in a row is forbidden.")
 
+    parser.add_argument('--enumerate', action='store_true', dest='listall',
+                        help="Enumerate all possible cases schedules, instead of finding just one.  This will create an absurd number of schedules for any reasonably-sized problem.")
+
     args = parser.parse_args()
 
     # set default for num_matchdays
@@ -558,31 +662,15 @@ def main():
     if not num_matches_per_day:
         num_matches_per_day = args.num_teams // 2
 
+    cpu = cpu_guess_and_gripe(args.cpu)
 
-    ncpu = len(os.sched_getaffinity(0))
-    cpu = args.cpu
-    if not cpu:
-        cpu = min(6,ncpu)
-        print('Setting number of search workers to %i' % cpu)
-
-    if cpu > ncpu:
-        print('You asked for %i workers to be used, but the os only reports %i CPUs available.  This might slow down processing' % (cpu,ncpu))
-
-    if cpu != 6:
-        # don't whinge at user if cpu is set to 6
-        if cpu < ncpu:
-            print('Using %i workers, but there are %i CPUs available.  You might get faster results by using the command line option --cpu %i, but be aware ORTools CP-SAT solver is tuned to 6 CPUs' % (cpu,ncpu,ncpu))
-
-        if cpu > 6:
-            print('Using %i workers.  Be aware ORTools CP-SAT solver is tuned to 6 CPUs' % cpu)
-
-
-    # assign_matches()
+    # set up the model
     (pools,fixtures,breaks,model) = model_matches(args.num_teams,
-                   args.num_matchdays,
-                   num_matches_per_day,
-                   args.num_pools,
-                   args.max_home_stand)
+                                                  args.num_matchdays,
+                                                  num_matches_per_day,
+                                                  args.num_pools,
+                                                  args.max_home_stand,
+                                                  args.listall)
 
     # pulled this out of model_matches to make it easier to collect
     # all possible matches
@@ -591,22 +679,31 @@ def main():
     # the schedule work
     #
     # But eventually make this a command line thing.
-    model.Minimize(sum(breaks))
+
+    minimize = False
+    if not args.listall:
+        model.Minimize(sum(breaks))
 
 
-    (solver,status) = solve_model(model,
-                                  args.time_limit,
-                                  cpu,
-                                  args.debug)
+        (solver,status) = solve_model(model,
+                                      args.time_limit,
+                                      cpu,
+                                      args.debug)
+        report_results(solver,
+                       status,
+                       fixtures,
+                       pools,
+                       args.num_teams,
+                       args.num_matchdays,
+                       args.time_limit,
+                       args.csv)
+    else:
+        (solver,status) = solution_search_model(model,fixtures,
+                                                args.time_limit,
+                                                cpu,
+                                                args.debug,
+                                                args.csv)
 
-    report_results(solver,
-                   status,
-                   fixtures,
-                   pools,
-                   args.num_teams,
-                   args.num_matchdays,
-                   args.time_limit,
-                   args.csv)
 
 
 if __name__ == '__main__':
