@@ -57,16 +57,6 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
         if self.__solution_count < 101:
             matches = self.__getter(solver=self,
                                     fixtures=self.__fixtures)
-            # for vi in self.__fixtures:
-            #     for vij in vi:
-            #         for vijk in vij:
-            #             if self.Value(vijk): # fixture is true, print the details
-            #                 print('%s=%i' % (vijk, self.Value(vijk)), end='\n')
-            #                 result = self.__prog.search('%s'%vijk)
-            #                 #print(result.groups())
-            #                 (d,h,a) = result.groups()
-            #                 row = {"schedule":self.__solution_count,"day":d,"home":h,"away":a}
-            #                 self.__writer.writerow(row)
             for row in matches:
                 [print('%s=%i,' % (k,v),end=' ') for (k,v) in row.items()]
                 print()
@@ -160,8 +150,6 @@ def screen_dump_results(scheduled_games):
     for row in scheduled_games:
         [print('%s=%i,' % (k,v),end=' ') for (k,v) in row.items()]
         print()
-    # for row in scheduled_games:
-    #     print('day %i home %i away %i' %(row['day'],row['home'],row['away']))
 
 
 def screen_dump_poolchecks(scheduled_games,pools):
