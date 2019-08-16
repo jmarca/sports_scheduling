@@ -91,25 +91,28 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
 
 def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
     matchdays = range(num_matchdays)
-    home_details = [(homepool+1,home)
-                    for homepool in range(len(pools))
-                    for home in pools[homepool]]
+    pool_membership = {home:homepool
+                       for (homepool,pool) in enumerate(pools)
+                       for home in pool}
+
     # away version of list is the same as home
     # away_details = home_details
-    match_details = [
-        {'day':d+1,
-         # cannot number games inside this loop
-         # 'game':game,
-         'home':home+1,
-         'away':away+1,
-         'home pool':homepool,
-         'away pool':awaypool}
-        for d in matchdays
-        for (homepool,home) in home_details
-        for (awaypool,away) in home_details
-        if solver.Value(fixtures[d][home][away])
-    ]
-    return match_details
+    #
+    # can't figure how to increment the game number inside the day
+    # here, but I guess it is probably wrong anyway
+    fixed_matches =  [{
+        'day':day+1,
+        'home':home+1,
+        'away':away+1,
+        'home pool':pool_membership[home]+1,
+        'away pool':pool_membership[away]+1,
+    }
+                      for (day,fd) in enumerate(fixtures)
+                      for (home,fh) in enumerate(fd)
+                      for (away,fixture) in enumerate(fh)
+                      if solver.Value(fixture)]
+
+    return list(fixed_matches)
 
 def check_file_collision(csv_basename):
     # check for any existing file
@@ -200,18 +203,19 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
 
 
 def collect_pool_play_fixtures(teams,pools,matchdays,fixtures):
-    pool_play=[[] for t in teams]
-    [ pool_play[t].append(fixture_slice(fixtures,matchdays,[t],pools[ppj]) + fixture_slice(fixtures,matchdays,pools[ppj],[t]))
-      for t in teams
-      for ppj in range(len(pools))
+    pool_play=[
+        [ fixture_slice(fixtures,matchdays,[t],pool) + fixture_slice(fixtures,matchdays,pool,[t])
+          for pool in pools ]
+        for t in teams
     ]
     return pool_play
 
 def collect_pool_balance_fixtures(pools,matchdays,fixtures):
-    pool_balance=[ [] for p in pools]
-    [ pool_balance[ppi].append(fixture_slice(fixtures,matchdays,pools[ppi],pools[ppj]))
-      for ppi in range(len(pools))
-      for ppj in range(len(pools)) ]
+    pool_balance=[
+        [ fixture_slice(fixtures,matchdays,pooli,poolj)
+          for poolj in pools ]
+        for pooli in pools
+    ]
     return pool_balance
 
 def fixture_slice(fixture,days,homes,aways):
@@ -243,15 +247,15 @@ def add_pool_play_constraints(pools,pool_play,model,minimum_games_function):
 
     # games per round robin
 
-    def constrain_games(pair):
-        (t,ppi) = pair
-        round_robin_games = expected_t_vs_pool_games(t,pools[ppi])
+    def constrain_games(triple):
+        (t,ppi,pooli) = triple
+        round_robin_games = expected_t_vs_pool_games(t,pooli)
         minimum_expected_games = minimum_games_function(games_per_rr=round_robin_games)
         model.Add(sum(pool_play[t][ppi]) >= minimum_expected_games)
         return (t,ppi,minimum_expected_games)
-    result = list( map (constrain_games, [ (t,ppi)
+    result = list( map (constrain_games, [ (t,ppi,pooli)
                             for t in range(len(pool_play))
-                            for ppi in range(len(pools))]
+                            for (ppi,pooli) in enumerate(pools)]
     ))
 
 def add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function):
@@ -259,8 +263,8 @@ def add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function
     # games per round robin
 
     def constrain_games(pair):
-        (ppi,ppj) = pair
-        round_robin_games = expected_pool_vs_pool_games(pools[ppi],pools[ppj])
+        (ppi,pooli,ppj,poolj) = pair
+        round_robin_games = expected_pool_vs_pool_games(pooli,poolj)
         minimum_expected_games = minimum_games_function(games_per_rr=round_robin_games)
 
         # print(ppi,ppj,minimum_expected_games)
@@ -275,9 +279,9 @@ def add_pool_balance_constraints(pools,pool_balance,model,minimum_games_function
             model.Add(sum(pool_balance[ppi][ppj]) == minimum_expected_games)
 
         return (ppi,ppj,minimum_expected_games)
-    result = list(map (constrain_games, [(ppi,ppj)
-                            for ppi in range(len(pools))
-                            for ppj in range(len(pools))]
+    result = list(map (constrain_games, [(ppi,pooli,ppj,poolj)
+                            for (ppj,poolj) in enumerate(pools)
+                            for (ppi,pooli) in enumerate(pools) ]
     ))
 
 def add_one_game_per_day(matchdays,matches_per_day,teams,fixtures,model):
@@ -370,31 +374,42 @@ def add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_sta
             # prevents a sequence of one more than max_home_stand to
             # take place.
 
-def add_breaks_constraint(teams,at_home,num_matchdays,model,listall=False):
-    breaks = []
-    for t in teams:
-        for d in range(num_matchdays-1):
-            breaks.append(model.NewBoolVar('two home or two away for team %i, starting on matchday %i' % (t,d)))
+def create_breaks(model,teams,num_matchdays):
+    # note that I am careful to iterate the same way here and in
+    # breaks_constraint, so that I don't have to double index breaks
+    # as in breaks[d][t] or something
+    breaks = [
+        model.NewBoolVar('two home or two away for team %i, starting on matchday %i' % (t,d))
+        for (breakidx,(t,d)) in enumerate([(t,d)
+                                            for t in teams
+                                            for d in range(num_matchdays-1)]) ]
+    return breaks
 
-            model.AddBoolOr([at_home[d][t],at_home[d+1][t],breaks[-1]])
-            model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t].Not(),breaks[-1]])
+def breaks_constraint(breaks,teams,at_home,num_matchdays,model,listall=False):
+    # side effects through list comprehension, yet again
+    [
+        [model.AddBoolOr([at_home[d][t],at_home[d+1][t],breaks[breakidx]]),
+         model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t].Not(),breaks[breakidx]]),
 
-            model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t],breaks[-1].Not()])
-            model.AddBoolOr([at_home[d][t],at_home[d+1][t].Not(),breaks[-1].Not()])
+         model.AddBoolOr([at_home[d][t].Not(),at_home[d+1][t],breaks[breakidx].Not()]),
+         model.AddBoolOr([at_home[d][t],at_home[d+1][t].Not(),breaks[breakidx].Not()])]
+        for (breakidx,(t,d)) in enumerate([(t,d)
+                                            for t in teams
+                                            for d in range(num_matchdays-1)]) ]
 
-            # I couldn't figure this out, so I wrote a little program
-            # and proved it.  These effectively are identical to
-            #
-            # model.Add(at_home[d][t] == at_home[d+1][t]).OnlyEnforceIf(breaks[-1])
-            # model.Add(at_home[d][t] != at_home[d+1][t]).OnlyEnforceIf(breaks[-1].Not())
-            #
-            # except they are a little more efficient, I believe.  Wrote it up in a blog post
+    # I couldn't figure this out, so I wrote a little program
+    # and proved it.  These effectively are identical to
+    #
+    # model.Add(at_home[d][t] == at_home[d+1][t]).OnlyEnforceIf(breaks[-1])
+    # model.Add(at_home[d][t] != at_home[d+1][t]).OnlyEnforceIf(breaks[-1].Not())
+    #
+    # except they are a little more efficient, I believe.  Wrote it up in a blog post
 
     # literature aside, I'm finding in practice that is num_matchdays
     # is odd, this constraint is really hard (read: impossible) to meet.  So
     if listall:
         print('listall case')
-        # in the list all case, want a hard constraint here
+        # in the list all case, want a hard constraint here (< is optimistic)
         if num_matchdays % 2:
             model.Add(sum(breaks) <= num_matchdays+1)
         else:
@@ -530,7 +545,9 @@ def model_matches(num_teams,
 
     add_max_home_stand_constraint(teams,at_home,model,num_matchdays,max_home_stand)
 
-    breaks = add_breaks_constraint(teams,at_home,num_matchdays,model,listall)
+    breaks = create_breaks(model,teams,num_matchdays)
+
+    breaks_constraint(breaks,teams,at_home,num_matchdays,model,listall)
 
     return (pools,fixtures,breaks,model)
 
