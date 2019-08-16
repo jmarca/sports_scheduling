@@ -41,9 +41,10 @@ from ortools.sat.python import cp_model
 class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
     """Print intermediate solutions."""
 
-    def __init__(self, variables, csvfile=None):
+    def __init__(self, fixtures, getter, csvfile):
         cp_model.CpSolverSolutionCallback.__init__(self)
-        self.__variables = variables
+        self.__fixtures = fixtures
+        self.__getter = getter
         self.__solution_count = 0
         self.__writer = self.get_csv_writer(csvfile)
         self.__close_once = True
@@ -54,19 +55,23 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
     def on_solution_callback(self):
         self.__solution_count += 1
         if self.__solution_count < 101:
-            for vi in self.__variables:
-                for vij in vi:
-                    for vijk in vij:
-                        if self.Value(vijk): # fixture is true, print the details
-                            print('%s=%i' % (vijk, self.Value(vijk)), end='\n')
-                            result = self.__prog.search('%s'%vijk)
-                            #print(result.groups())
-                            (d,h,a) = result.groups()
-                            #print(d,h,a)
-                            #print(self.__writer)
-                            row = {"schedule":self.__solution_count,"day":d,"home":h,"away":a}
-                            #print(row)
-                            self.__writer.writerow(row)
+            matches = self.__getter(solver=self,
+                                    fixtures=self.__fixtures)
+            # for vi in self.__fixtures:
+            #     for vij in vi:
+            #         for vijk in vij:
+            #             if self.Value(vijk): # fixture is true, print the details
+            #                 print('%s=%i' % (vijk, self.Value(vijk)), end='\n')
+            #                 result = self.__prog.search('%s'%vijk)
+            #                 #print(result.groups())
+            #                 (d,h,a) = result.groups()
+            #                 row = {"schedule":self.__solution_count,"day":d,"home":h,"away":a}
+            #                 self.__writer.writerow(row)
+            for row in matches:
+                [print('%s=%i,' % (k,v),end=' ') for (k,v) in row.items()]
+                print()
+                self.__writer.writerow(row)
+
             print()
             self.__writer.writerow({})
 
@@ -78,7 +83,7 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
 
     def get_csv_writer(self,csvname):
         self.__csvfile = open(csvname, 'w', newline='')
-        fieldnames = ['schedule','day','home','away']
+        fieldnames = ['day','home','away','home pool','away pool']
         writer = csv.DictWriter(self.__csvfile, fieldnames=fieldnames)
         writer.writeheader()
         return writer
@@ -89,12 +94,10 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
     #     #self.__close_once = False
     #  going to leak a file descriptor.  but I'm screwing up the close here
 
-def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
-    matchdays = range(num_matchdays)
+def get_scheduled_fixtures(solver,fixtures,pools):
     pool_membership = {home:homepool
                        for (homepool,pool) in enumerate(pools)
                        for home in pool}
-
     # away version of list is the same as home
     # away_details = home_details
     #
@@ -111,7 +114,6 @@ def get_scheduled_fixtures(solver,fixtures,pools,num_matchdays):
                       for (home,fh) in enumerate(fd)
                       for (away,fixture) in enumerate(fh)
                       if solver.Value(fixture)]
-
     return list(fixed_matches)
 
 def check_file_collision(csv_basename):
@@ -131,9 +133,8 @@ def check_file_collision(csv_basename):
         # os.unlink(csv_basename)
     return checkname
 
-def csv_dump_results(solver,fixtures,pools,num_matchdays,csv_basename):
+def csv_dump_results(scheduled_games,csv_basename):
 
-    scheduled_games = get_scheduled_fixtures(solver,fixtures,pools,num_matchdays)
     checkname = check_file_collision(csv_basename)
     with open(checkname, 'w', newline='') as csvfile:
         fieldnames = ['day','home','away','home pool','away pool']
@@ -154,14 +155,16 @@ def accum_team_pool(team_vs_pool, row):
     team_vs_pool[row['home']-1][row['away pool']-1] += 1
     team_vs_pool[row['away']-1][row['home pool']-1] += 1
     return team_vs_pool
-def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
+def screen_dump_results(scheduled_games):
 
-    scheduled_games = get_scheduled_fixtures(solver,fixtures,pools,num_matchdays)
-    total_games = len(scheduled_games)
     for row in scheduled_games:
-        print('day %i home %i away %i' %(row['day'],row['home'],row['away']))
+        [print('%s=%i,' % (k,v),end=' ') for (k,v) in row.items()]
+        print()
+    # for row in scheduled_games:
+    #     print('day %i home %i away %i' %(row['day'],row['home'],row['away']))
 
 
+def screen_dump_poolchecks(scheduled_games,pools):
     # next evaluate team vs pool, pool vs pool
     #
     # The expected values for these sums vary depending on problem parameters
@@ -176,8 +179,8 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
     ]
 
     team_vs_pool=[
-        [0 for j in pools]
-        for t in range(num_teams)
+        [0 for pool in pools]
+        for t in [team for pool in pools for team in pool]
     ]
 
     # this loop accumulates match counts for pool vs pool
@@ -199,6 +202,7 @@ def screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays):
         for j in range(len(pools)):
             print('pool %i at home vs pool %i away, count = %i'%(i,j,pool_vs_pool[i][j]))
             all_combinations_sum += pool_vs_pool[i][j]
+    total_games = len(scheduled_games)
     assert all_combinations_sum == total_games
 
 
@@ -574,7 +578,7 @@ def solve_model(model,
     return (solver,status)
 
 
-def solution_search_model(model,fixtures,
+def solution_search_model(model,fixtures,pools,
                           time_limit=None,
                           num_cpus=None,
                           debug=None,
@@ -586,7 +590,9 @@ def solution_search_model(model,fixtures,
     # cannot search with multiple CPUs
     # solver.parameters.num_search_workers = num_cpus
     # Search and print out all solutions.
-    solution_printer = VarArraySolutionPrinter(fixtures,check_file_collision("list_"+csv))
+    solution_printer = VarArraySolutionPrinter(fixtures,
+                                               partial(get_scheduled_fixtures,pools=pools),
+                                               check_file_collision("list_"+csv))
     status = solver.SearchForAllSolutions(model, solution_printer)
     print('Solve status: %s' % solver.StatusName(status))
     print('Statistics')
@@ -609,8 +615,10 @@ def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_lim
 
     print('Optimal objective value: %i' % solver.ObjectiveValue())
 
+    scheduled_games = get_scheduled_fixtures(solver,fixtures,pools)
 
-    screen_dump_results(solver,fixtures,pools,num_teams,num_matchdays)
+    screen_dump_results(scheduled_games)
+    screen_dump_poolchecks(scheduled_games,pools)
 
     if status != cp_model.OPTIMAL and solver.WallTime() >= time_limit:
         print('Please note that solver reached maximum time allowed %i.' % time_limit)
@@ -618,7 +626,7 @@ def report_results(solver,status,fixtures,pools,num_teams,num_matchdays,time_lim
 
 
     if csv:
-        csv_dump_results(solver,fixtures,pools,num_matchdays,csv)
+        csv_dump_results(scheduled_games,csv)
 
 def cpu_guess_and_gripe(cpu):
     ncpu = len(os.sched_getaffinity(0))
@@ -715,7 +723,7 @@ def main():
                        args.time_limit,
                        args.csv)
     else:
-        (solver,status) = solution_search_model(model,fixtures,
+        (solver,status) = solution_search_model(model,fixtures,pools,
                                                 args.time_limit,
                                                 cpu,
                                                 args.debug,
